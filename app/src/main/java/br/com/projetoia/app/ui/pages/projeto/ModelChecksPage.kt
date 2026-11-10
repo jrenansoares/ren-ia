@@ -36,7 +36,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import br.com.projetoia.app.R
 import br.com.projetoia.app.data.ai.authorizeProviderRouting
-import br.com.projetoia.app.data.ai.hasConfiguredCredentials
 import br.com.projetoia.app.data.ai.hasCostAcknowledged
 import br.com.projetoia.app.data.ai.catalogAllows
 import br.com.projetoia.app.data.ai.modelStabilityScore
@@ -49,6 +48,7 @@ import br.com.projetoia.app.data.ai.canProbeModel
 import br.com.projetoia.app.data.ai.isConfirmedFreeProbe
 import br.com.projetoia.app.data.ai.modelCheck
 import br.com.projetoia.app.data.datastore.SettingsStore
+import br.com.projetoia.app.data.datastore.hasConfiguredCredentials
 import br.com.projetoia.app.ui.components.nav.BackButton
 import br.com.projetoia.app.ui.components.ui.CardGroup
 import me.rerere.ai.provider.Model

@@ -83,7 +83,6 @@ import me.rerere.hugeicons.stroke.Tools
 import br.com.projetoia.app.R
 import br.com.projetoia.app.Screen
 import br.com.projetoia.app.data.ai.ModelCheckStatus
-import br.com.projetoia.app.data.ai.hasConfiguredCredentials
 import br.com.projetoia.app.data.ai.hasPassedModelCheck
 import br.com.projetoia.app.data.ai.modelCheck
 import br.com.projetoia.app.data.ai.modelStabilityScore
@@ -91,6 +90,7 @@ import br.com.projetoia.app.data.ai.routeScore
 import br.com.projetoia.app.data.datastore.SettingsStore
 import br.com.projetoia.app.data.datastore.findModelById
 import br.com.projetoia.app.data.datastore.findProvider
+import br.com.projetoia.app.data.datastore.hasConfiguredCredentials
 import br.com.projetoia.app.ui.components.ui.Tag
 import br.com.projetoia.app.ui.components.ui.TagType
 import br.com.projetoia.app.ui.context.LocalNavController
