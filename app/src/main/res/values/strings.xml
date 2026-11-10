@@ -2059,4 +2059,8 @@
   <string name="ren_model_history">Observed usage · %1$d successes · %2$d failures · average response %3$d ms</string>
   <string name="ren_key_models">%1$d ready out of %2$d configured models</string>
   <string name="ren_price_authorized">Usage authorized · price not confirmed</string>
+  <string name="backup_page_restore_rollback">Backup restore failed. Original data was preserved.</string>
+  <string name="projeto_connect_provider_cta">Connect AI provider</string>
+  <string name="projeto_connect_provider_first">Connect an AI provider to start chatting</string>
+  <string name="chat_page_select_model_first">Please select a model first</string>
 </resources>

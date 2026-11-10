@@ -68,9 +68,9 @@ import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.hugeicons.HugeIcons
-import me.rerere.hugeicons.stroke.File02
 import me.rerere.hugeicons.stroke.Code
 import me.rerere.hugeicons.stroke.Folder01
+import me.rerere.hugeicons.stroke.Key01
 import me.rerere.hugeicons.stroke.Message01
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.LeftToRightListBullet
@@ -86,6 +86,7 @@ import br.com.projetoia.app.data.model.isAwaitingToolApproval
 import br.com.projetoia.app.data.datastore.Settings
 import br.com.projetoia.app.data.datastore.findProvider
 import br.com.projetoia.app.data.datastore.getSelectedASRProvider
+import br.com.projetoia.app.data.datastore.isNotConfigured
 import br.com.projetoia.app.data.files.FilesManager
 import br.com.projetoia.app.data.model.Assistant
 import br.com.projetoia.app.data.model.Conversation
@@ -260,7 +261,8 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null, pr
                         navController = navController,
                         current = conversation,
                         vm = vm,
-                        settings = setting
+                        settings = setting,
+                        onCloseDrawer = { scope.launch { drawerState.close() } },
                     )
                 }
             ) {
@@ -385,6 +387,8 @@ private fun ChatPageContent(
             bottomBar = {
                 val messageQueue by vm.messageQueue.collectAsStateWithLifecycle()
                 val voiceState by vm.voiceSession.state.collectAsStateWithLifecycle()
+                val connectProviderWarning = stringResource(R.string.projeto_connect_provider_first)
+                val selectModelWarning = stringResource(R.string.chat_page_select_model_first)
                 Column {
                     ProgrammingModePanel(
                         conversation = conversation,
@@ -414,8 +418,13 @@ private fun ChatPageContent(
                         vm.stopGeneration()
                     },
                     onSendClick = {
+                        if (setting.isNotConfigured()) {
+                            toaster.show(connectProviderWarning, type = ToastType.Warning)
+                            navController.navigate(Screen.Connections)
+                            return@ChatInput
+                        }
                         if (currentChatModel == null && !setting.freeRouter.enabled && conversation.config?.programmingMode != true) {
-                            toaster.show("请先选择模型", type = ToastType.Error)
+                            toaster.show(selectModelWarning, type = ToastType.Error)
                             return@ChatInput
                         }
                         if (inputState.isEditing()) {
@@ -545,16 +554,16 @@ private fun ChatPageContent(
 private fun ChatHomeDock(navController: Navigator) {
     val items = listOf(
         Triple(HugeIcons.Message01, R.string.projeto_chat_tab_chat) {
-            navController.navigate(Screen.Chat(Uuid.random().toString()))
+            // Já estamos na conversa vazia inicial; evita empilhar rotas vazias repetidas.
+        },
+        Triple(HugeIcons.Key01, R.string.projeto_connections) {
+            navController.navigate(Screen.Connections)
         },
         Triple(HugeIcons.Folder01, R.string.projeto_chat_tab_projects) {
             navController.navigate(Screen.Workspaces)
         },
         Triple(HugeIcons.Code, R.string.projeto_chat_tab_code) {
             navController.navigate(Screen.Chat(Uuid.random().toString(), programmingSetup = true))
-        },
-        Triple(HugeIcons.File02, R.string.projeto_chat_tab_files) {
-            navController.navigate(Screen.SettingFiles)
         },
     )
     Surface(

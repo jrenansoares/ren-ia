@@ -64,7 +64,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
-import me.rerere.hugeicons.stroke.ComputerTerminal01
 import me.rerere.hugeicons.stroke.Home01
 import me.rerere.hugeicons.stroke.Codesandbox
 import me.rerere.hugeicons.stroke.Key01
@@ -120,6 +119,7 @@ fun ChatDrawerContent(
     vm: ChatVM,
     settings: Settings,
     current: Conversation,
+    onCloseDrawer: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -195,11 +195,11 @@ fun ChatDrawerContent(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(stringResource(R.string.projeto_brand), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
-                androidx.compose.material3.OutlinedIconButton(onClick = { navController.navigate(Screen.MessageSearch) }) {
+                androidx.compose.material3.OutlinedIconButton(onClick = { onCloseDrawer(); navController.navigate(Screen.MessageSearch) }) {
                     Icon(HugeIcons.Search01, stringResource(R.string.chat_page_search_chats))
                 }
             }
-            DrawerActions(navController)
+            DrawerActions(navController, onCloseDrawer)
             if (folders.isNotEmpty()) {
                 FolderBar(
                     folders = folders, selectedFolderId = selectedFolderId,
@@ -232,7 +232,7 @@ fun ChatDrawerContent(
                 current = current, conversations = conversations, conversationJobs = conversationJobs.keys,
                 listState = conversationListState, header = if (scrollableHeader) drawerHeader else null,
                 modifier = Modifier.fillMaxWidth().weight(1f),
-                onClick = { navigateToChatPage(navController, it.id) },
+                onClick = { onCloseDrawer(); navigateToChatPage(navController, it.id) },
                 onRegenerateTitle = { vm.generateTitle(it, true) },
                 onDelete = {
                     scope.launch {
@@ -250,7 +250,7 @@ fun ChatDrawerContent(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                androidx.compose.material3.Button(onClick = { navigateToChatPage(navController) }, shapes = androidx.compose.material3.ButtonDefaults.shapes(shape = androidx.compose.ui.graphics.RectangleShape, pressedShape = androidx.compose.ui.graphics.RectangleShape), elevation = null) {
+                androidx.compose.material3.Button(onClick = { onCloseDrawer(); navigateToChatPage(navController) }, shapes = androidx.compose.material3.ButtonDefaults.shapes(shape = androidx.compose.ui.graphics.RectangleShape, pressedShape = androidx.compose.ui.graphics.RectangleShape), elevation = null) {
                     Icon(HugeIcons.PencilEdit01, null, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(10.dp))
                     Text(stringResource(R.string.projeto_drawer_new_chat))
@@ -290,12 +290,15 @@ fun ChatDrawerContent(
                     modifier = Modifier.fillMaxWidth(),
                     onClickSetting = { showProfileSheet = false; navController.navigate(Screen.AssistantDetail(settings.assistantId.toString())) },
                 )
-                DrawerEntry(HugeIcons.Settings03, stringResource(R.string.settings), { showProfileSheet = false; navController.navigate(Screen.Setting) })
-                DrawerEntry(HugeIcons.LookTop, stringResource(R.string.assistant_page_title), { showProfileSheet = false; navController.navigate(Screen.Assistant) })
-                DrawerEntry(HugeIcons.ChartColumn, stringResource(R.string.projeto_drawer_stats), { showProfileSheet = false; navController.navigate(Screen.Stats) })
-                DrawerEntry(HugeIcons.LanguageCircle, stringResource(R.string.chat_page_menu_ai_translator), { showProfileSheet = false; navController.navigate(Screen.Translator) })
+                DrawerEntry(HugeIcons.Settings03, stringResource(R.string.settings), { showProfileSheet = false; onCloseDrawer(); navController.navigate(Screen.Setting) })
+                DrawerEntry(HugeIcons.ArrowDataTransferHorizontal, stringResource(R.string.projeto_drawer_routing), { showProfileSheet = false; onCloseDrawer(); navController.navigate(Screen.FreeRouter) })
+                DrawerEntry(HugeIcons.LookTop, stringResource(R.string.assistant_page_title), { showProfileSheet = false; onCloseDrawer(); navController.navigate(Screen.Assistant) })
+                DrawerEntry(HugeIcons.InLove, stringResource(R.string.projeto_drawer_saved), { showProfileSheet = false; onCloseDrawer(); navController.navigate(Screen.Favorite) })
+                DrawerEntry(HugeIcons.ImageToVideo, stringResource(R.string.projeto_drawer_media), { showProfileSheet = false; onCloseDrawer(); navController.navigate(Screen.MediaCreationSessions) })
+                DrawerEntry(HugeIcons.ChartColumn, stringResource(R.string.projeto_drawer_stats), { showProfileSheet = false; onCloseDrawer(); navController.navigate(Screen.Stats) })
+                DrawerEntry(HugeIcons.LanguageCircle, stringResource(R.string.chat_page_menu_ai_translator), { showProfileSheet = false; onCloseDrawer(); navController.navigate(Screen.Translator) })
                 DrawerEntry(HugeIcons.FolderAdd, stringResource(R.string.chat_page_create_folder), { showProfileSheet = false; showCreateFolderDialog = true })
-                DrawerEntry(HugeIcons.TransactionHistory, stringResource(R.string.projeto_drawer_backup), { showProfileSheet = false; navController.navigate(Screen.Backup) })
+                DrawerEntry(HugeIcons.TransactionHistory, stringResource(R.string.projeto_drawer_backup), { showProfileSheet = false; onCloseDrawer(); navController.navigate(Screen.Backup) })
                 if (memoryDreaming) MemoryDreamingEntry { showProfileSheet = false; navController.navigate(Screen.AssistantMemory(settings.assistantId.toString())) }
             }
         }
@@ -583,17 +586,12 @@ fun ChatDrawerContent(
 }
 
 @Composable
-private fun DrawerActions(navController: Navigator) {
+private fun DrawerActions(navController: Navigator, onCloseDrawer: () -> Unit = {}) {
     Column {
-        DrawerEntry(HugeIcons.Home01, stringResource(R.string.projeto_drawer_home), { navController.navigate(Screen.ProjetoHome) })
-        DrawerEntry(HugeIcons.ImageToVideo, stringResource(R.string.projeto_drawer_media), { navController.navigate(Screen.MediaCreationSessions) })
-        DrawerEntry(HugeIcons.Folder01, stringResource(R.string.projeto_drawer_projects), { navController.navigate(Screen.Workspaces) })
-        DrawerEntry(HugeIcons.Folder01, stringResource(R.string.projeto_repositories_title), { navController.navigate(Screen.Repositories) })
-        DrawerEntry(HugeIcons.ComputerTerminal01, stringResource(R.string.linux_page_title), { navController.navigate(Screen.SharedLinux) })
-        DrawerEntry(HugeIcons.Codesandbox, stringResource(R.string.programming_title), { navController.navigate(Screen.Chat(Uuid.random().toString(), programmingSetup = true)) })
-        DrawerEntry(HugeIcons.InLove, stringResource(R.string.projeto_drawer_saved), { navController.navigate(Screen.Favorite) })
-        DrawerEntry(HugeIcons.Key01, stringResource(R.string.projeto_connections), { navController.navigate(Screen.Connections) })
-        DrawerEntry(HugeIcons.ArrowDataTransferHorizontal, stringResource(R.string.projeto_drawer_routing), { navController.navigate(Screen.FreeRouter) })
+        DrawerEntry(HugeIcons.Key01, stringResource(R.string.projeto_connections), { onCloseDrawer(); navController.navigate(Screen.Connections) })
+        DrawerEntry(HugeIcons.Codesandbox, stringResource(R.string.programming_title), { onCloseDrawer(); navController.navigate(Screen.Chat(Uuid.random().toString(), programmingSetup = true)) })
+        DrawerEntry(HugeIcons.Folder01, stringResource(R.string.projeto_drawer_projects), { onCloseDrawer(); navController.navigate(Screen.Workspaces) })
+        DrawerEntry(HugeIcons.Home01, stringResource(R.string.projeto_drawer_home), { onCloseDrawer(); navController.navigate(Screen.ProjetoHome) })
     }
 }
 

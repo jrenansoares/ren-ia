@@ -110,6 +110,22 @@ class SettingsFieldsTest {
         assertEquals("changed", preferences[SettingsStore.THEME_ID])
         assertEquals("on disk", preferences[SettingsStore.TITLE_PROMPT])
     }
+
+    @Test
+    fun `corrupted sealed or malformed field falls back to default without crashing load`() {
+        val preferences = mutablePreferencesOf().apply {
+            putSettings(SAMPLE)
+            this[SettingsStore.PROVIDERS] = "projetoia:sealed:v1:corrupted-keystore-payload"
+            this[SettingsStore.CUSTOM_THEMES] = "{malformed-json"
+        }
+
+        val loaded = preferences.toSettings()
+
+        assertEquals("custom", loaded.themeId)
+        assertEquals("title", loaded.titlePrompt)
+        assertEquals(emptyList<ProviderSetting>(), loaded.providers)
+        assertEquals(emptyList<CustomTheme>(), loaded.customThemes)
+    }
 }
 
 private fun id(n: Int) = Uuid.parse("00000000-0000-0000-0000-%012d".format(n))

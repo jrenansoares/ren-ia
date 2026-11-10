@@ -26,7 +26,7 @@ class UpdateChecker(
             val request = DownloadManager.Request(download.url.toUri()).apply {
                 // 设置下载时通知栏的标题和描述
                 setTitle(download.name)
-                setDescription("正在下载更新包...")
+                setDescription("Baixando pacote de atualização...")
                 // 下载完成后通知栏可见
                 setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 // 允许在移动网络和WiFi下下载

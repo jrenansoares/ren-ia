@@ -1,0 +1,44 @@
+name: Alpha 16 Validation & Debug APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/alpha16-funcional
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  validate-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up JDK 21 (JetBrains Runtime)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'jetbrains'
+          java-version: '21'
+          cache: 'gradle'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run JVM Unit Tests
+        run: |
+          chmod +x gradlew
+          ./gradlew testGithubDebugUnitTest :ai:testDebugUnitTest :workspace:testDebugUnitTest :common:testDebugUnitTest -x :web:buildWebUi
+
+      - name: Assemble Installable Debug APK
+        run: |
+          ./gradlew assembleGithubDebug -x :web:buildWebUi
+
+      - name: Upload Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ren-ia-alpha16-debug-apk
+          path: app/build/outputs/apk/github/debug/*.apk

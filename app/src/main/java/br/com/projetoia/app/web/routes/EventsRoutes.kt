@@ -8,9 +8,11 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
+import kotlinx.serialization.json.encodeToJsonElement
 import br.com.projetoia.app.data.datastore.SettingsStore
 import br.com.projetoia.app.data.repository.ConversationRepository
 import br.com.projetoia.app.data.repository.FolderRepository
+import br.com.projetoia.app.data.security.sanitizeBackup
 import br.com.projetoia.app.service.ChatService
 import br.com.projetoia.app.utils.JsonInstant
 import br.com.projetoia.app.web.dto.ConversationListInvalidateEvent
@@ -41,9 +43,10 @@ fun Route.eventsRoutes(
             period = 15.seconds
         }
 
-        // Full settings snapshot; StateFlow emits the current value immediately on connect.
+        // Sanitized settings snapshot; never broadcast API keys or credentials over SSE.
         val settingsEvents = settingsStore.settingsFlow.map { settings ->
-            EventPayload(event = "settings", json = JsonInstant.encodeToString(settings))
+            val sanitized = sanitizeBackup(JsonInstant.encodeToJsonElement(settings))
+            EventPayload(event = "settings", json = JsonInstant.encodeToString(sanitized))
         }
 
         // Conversation list invalidation, scoped to the currently selected assistant.

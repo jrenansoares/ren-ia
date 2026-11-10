@@ -98,8 +98,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.rerere.ai.ui.UIMessage
 import br.com.projetoia.app.R
+import br.com.projetoia.app.Screen
 import br.com.projetoia.app.data.datastore.Settings
 import br.com.projetoia.app.data.datastore.getAssistantById
+import br.com.projetoia.app.data.datastore.isNotConfigured
 import br.com.projetoia.app.data.model.Conversation
 import br.com.projetoia.app.data.model.MessageNode
 import br.com.projetoia.app.data.model.withConversation
@@ -108,6 +110,7 @@ import br.com.projetoia.app.ui.components.message.ChatMessage
 import br.com.projetoia.app.ui.components.ui.drawAppLogo
 import br.com.projetoia.app.ui.components.ui.rememberAppLogoLayers
 import br.com.projetoia.app.ui.components.ui.ErrorCardsDisplay
+import br.com.projetoia.app.ui.context.LocalNavController
 import br.com.projetoia.app.ui.hooks.ImeLazyListAutoScroller
 import br.com.projetoia.app.ui.theme.ChatFontProvider
 import br.com.projetoia.app.utils.plus
@@ -366,6 +369,19 @@ private fun ChatListNormal(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodyLarge,
                         )
+                        if (settings.isNotConfigured()) {
+                            val navController = LocalNavController.current
+                            androidx.compose.material3.Button(
+                                onClick = { navController.navigate(Screen.Connections) },
+                                shapes = androidx.compose.material3.ButtonDefaults.shapes(
+                                    shape = RectangleShape,
+                                    pressedShape = RectangleShape,
+                                ),
+                                elevation = null,
+                            ) {
+                                Text(stringResource(R.string.projeto_connect_provider_cta))
+                            }
+                        }
                     }
                 }
             }

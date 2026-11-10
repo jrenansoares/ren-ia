@@ -326,4 +326,8 @@
   <string name="ren_model_history">Uso observado · %1$d sucessos · %2$d falhas · resposta média %3$d ms</string>
   <string name="ren_key_models">%1$d prontos de %2$d modelos cadastrados</string>
   <string name="ren_price_authorized">Uso autorizado · preço não confirmado</string>
+  <string name="backup_page_restore_rollback">Falha ao restaurar o backup. Os dados originais foram preservados.</string>
+  <string name="projeto_connect_provider_cta">Conectar provedor de IA</string>
+  <string name="projeto_connect_provider_first">Conecte um provedor de IA para iniciar a conversa</string>
+  <string name="chat_page_select_model_first">Selecione um modelo primeiro</string>
 </resources>

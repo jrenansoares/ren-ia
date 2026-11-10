@@ -72,7 +72,7 @@ class ProjetoIAApp : Application() {
             }
         } catch (e: RestoreFailedException) {
             Log.e(TAG, "Backup restore rolled back", e)
-            Toast.makeText(this, "备份恢复失败，已保留原数据。请重新导入备份。", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, R.string.backup_page_restore_rollback, Toast.LENGTH_LONG).show()
         }
         startKoin {
             androidLogger()
@@ -319,7 +319,7 @@ class ProjetoIAApp : Application() {
 
 class AppScope : CoroutineScope by CoroutineScope(
     SupervisorJob() +
-        Dispatchers.Main +
+        Dispatchers.Default +
         CoroutineName("AppScope") +
         CoroutineExceptionHandler { _, e ->
             Log.e(TAG, "AppScope exception", e)
