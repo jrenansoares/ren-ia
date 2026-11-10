@@ -98,19 +98,76 @@ internal fun routeScore(model: Model, task: String): Int {
     return score
 }
 
-internal fun Settings.automaticRoutes(task: String, preferredModelId: Uuid? = null): List<FreeRoute> = providers.flatMap { provider ->
+internal fun routeProfileScore(
+    model: Model,
+    profile: br.com.projetoia.app.data.datastore.RoutingProfile,
+    task: String,
+): Int {
+    val id = model.modelId.lowercase(java.util.Locale.ROOT)
+    val name = (model.modelId + " " + model.displayName).lowercase(java.util.Locale.ROOT)
+    var score = modelStabilityScore(model)
+
+    when (profile) {
+        br.com.projetoia.app.data.datastore.RoutingProfile.AUTO -> {
+            score += routeScore(model, task)
+        }
+        br.com.projetoia.app.data.datastore.RoutingProfile.CODING -> {
+            if (ModelAbility.TOOL in model.abilities) score += 30
+            if (listOf("coder", "code", "coding", "codestral", "dev").any { it in name }) score += 40
+            if (listOf("llama-3.3-70b", "deepseek-chat", "deepseek-coder", "qwen2.5-coder", "qwen-qwq", "gemini-2.5-flash", "claude-3-5-sonnet", "claude-sonnet-4").any { it in id }) score += 45
+            if (model.contextLength >= 32_000) score += 15
+        }
+        br.com.projetoia.app.data.datastore.RoutingProfile.REASONING -> {
+            if (ModelAbility.REASONING in model.abilities) score += 60
+            if (listOf("reasoner", "r1", "qwq", "thinking", "reasoning", "nemotron-ultra", "o1", "o3").any { it in id }) score += 50
+        }
+        br.com.projetoia.app.data.datastore.RoutingProfile.VISION -> {
+            if (Modality.IMAGE in model.inputModalities) score += 60
+            if (listOf("vision", "vl", "flash", "4o", "sonnet").any { it in id }) score += 30
+        }
+        br.com.projetoia.app.data.datastore.RoutingProfile.VIDEO -> {
+            if (Modality.VIDEO in model.inputModalities || model.contextLength >= 500_000) score += 70
+            if (listOf("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-2.5-pro").any { it in id }) score += 50
+        }
+        br.com.projetoia.app.data.datastore.RoutingProfile.FAST -> {
+            if (listOf("8b", "lite", "fast", "instant", "small", "mini", "haiku").any { it in id }) score += 60
+            if (listOf("70b", "405b", "reasoner", "r1", "large").any { it in id }) score -= 30
+        }
+        br.com.projetoia.app.data.datastore.RoutingProfile.CUSTOM -> {
+            // Preserves stability score, ordering by customPriorityModelIds in comparator
+        }
+    }
+    return score
+}
+
+internal fun Settings.automaticRoutes(
+    task: String,
+    preferredModelId: Uuid? = null,
+    profile: br.com.projetoia.app.data.datastore.RoutingProfile = freeRouter.activeProfile,
+): List<FreeRoute> = providers.flatMap { provider ->
     provider.models.filter {
         it.id in freeRouter.approvedModelIds && it.id !in freeRouter.excludedModelIds &&
             isAutomaticRouteCandidate(provider, it) &&
             hasPassedModelCheck(provider, it) && catalogAllows(provider, it) && providerReady(provider) &&
             (routeHealth(provider, it)?.cooldownUntil ?: 0) <= System.currentTimeMillis() &&
-            (isConfirmedFreeProbe(provider, it) || hasCostAcknowledged(provider, it))
+            (isConfirmedFreeProbe(provider, it) || hasCostAcknowledged(provider, it)) &&
+            (profile != br.com.projetoia.app.data.datastore.RoutingProfile.VISION || Modality.IMAGE in it.inputModalities) &&
+            (profile != br.com.projetoia.app.data.datastore.RoutingProfile.VIDEO || (Modality.VIDEO in it.inputModalities || it.contextLength >= 200_000)) &&
+            (profile != br.com.projetoia.app.data.datastore.RoutingProfile.CODING || ModelAbility.TOOL in it.abilities || modelCheck(provider, it)?.toolsVerified == true)
     }
         .map { model -> FreeRoute(provider, model, modelCheck(provider, model)?.toolsVerified == true) }
 }.sortedWith(
     compareBy<FreeRoute> { if (it.model.id == preferredModelId) 0 else 1 }
-        .thenBy { providerFallbackPriority(it.provider) }
-        .thenByDescending { routeScore(it.model, task) + modelStabilityScore(it.model) + routeLearningScore(routeHealth(it.provider, it.model)) }
+        .thenBy {
+            if (profile == br.com.projetoia.app.data.datastore.RoutingProfile.CUSTOM && it.model.id in freeRouter.customPriorityModelIds) {
+                freeRouter.customPriorityModelIds.indexOf(it.model.id)
+            } else {
+                providerFallbackPriority(it.provider)
+            }
+        }
+        .thenByDescending {
+            routeProfileScore(it.model, profile, task) + routeLearningScore(routeHealth(it.provider, it.model))
+        }
         .thenBy { freeRouter.approvedModelIds.indexOf(it.model.id) },
 )
 

@@ -132,4 +132,31 @@ class FreeModelRoutingTest {
         assertEquals(1, calls)
     }
 
+    @Test fun routingProfilesPrioritizeSpecializedModels() {
+        val codingModel = Model(modelId = "deepseek-coder", abilities = listOf(ModelAbility.TOOL))
+        val reasoningModel = Model(modelId = "deepseek-reasoner", abilities = listOf(ModelAbility.REASONING))
+        val visionModel = Model(modelId = "gemini-2.5-flash", inputModalities = listOf(Modality.TEXT, Modality.IMAGE))
+        val fastModel = Model(modelId = "llama-3.1-8b-instant")
+        val generalModel = Model(modelId = "general-model")
+
+        assertTrue(
+            routeProfileScore(codingModel, br.com.projetoia.app.data.datastore.RoutingProfile.CODING, "") >
+                routeProfileScore(generalModel, br.com.projetoia.app.data.datastore.RoutingProfile.CODING, "")
+        )
+
+        assertTrue(
+            routeProfileScore(reasoningModel, br.com.projetoia.app.data.datastore.RoutingProfile.REASONING, "") >
+                routeProfileScore(generalModel, br.com.projetoia.app.data.datastore.RoutingProfile.REASONING, "")
+        )
+
+        assertTrue(
+            routeProfileScore(visionModel, br.com.projetoia.app.data.datastore.RoutingProfile.VISION, "") >
+                routeProfileScore(generalModel, br.com.projetoia.app.data.datastore.RoutingProfile.VISION, "")
+        )
+
+        assertTrue(
+            routeProfileScore(fastModel, br.com.projetoia.app.data.datastore.RoutingProfile.FAST, "") >
+                routeProfileScore(generalModel, br.com.projetoia.app.data.datastore.RoutingProfile.FAST, "")
+        )
+    }
 }

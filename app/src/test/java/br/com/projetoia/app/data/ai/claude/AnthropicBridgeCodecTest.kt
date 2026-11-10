@@ -34,13 +34,18 @@ class AnthropicBridgeCodecTest {
         Unit
     }
 
-    @Test fun arbitraryModelNamesCannotSelectAnotherProvider() {
-        val json = Json.parseToJsonElement("""{"model":"claude-paid","messages":[{"role":"user","content":"hi"}]}""").jsonObject
-        assertThrows(IllegalArgumentException::class.java) { AnthropicBridgeCodec.decode(json) }
+    @Test fun modelNamesAreDecodedAndBlankModelIsRejected() {
+        val sonnet = Json.parseToJsonElement("""{"model":"claude-3-5-sonnet-20241022","messages":[{"role":"user","content":"hi"}]}""").jsonObject
+        assertEquals("claude-3-5-sonnet-20241022", AnthropicBridgeCodec.decode(sonnet).requestedModel)
+
+        val blank = Json.parseToJsonElement("""{"model":"","messages":[{"role":"user","content":"hi"}]}""").jsonObject
+        assertThrows(IllegalArgumentException::class.java) { AnthropicBridgeCodec.decode(blank) }
     }
 
-    @Test fun orphanResultsAndRemoteImagesAreRejected() {
-        assertThrows(IllegalArgumentException::class.java) { decode("""[{"role":"user","content":[{"type":"tool_result","tool_use_id":"unknown","content":"x"}]}]""") }
+    @Test fun orphanResultsArePreservedAndRemoteImagesAreRejected() {
+        val orphan = decode("""[{"role":"user","content":[{"type":"tool_result","tool_use_id":"orphan_1","content":"recovered text"}]}]""")
+        assertTrue(orphan.messages.any { it.toText().contains("recovered text") })
+
         assertThrows(IllegalArgumentException::class.java) { decode("""[{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://invalid.test/private"}}]}]""") }
     }
 

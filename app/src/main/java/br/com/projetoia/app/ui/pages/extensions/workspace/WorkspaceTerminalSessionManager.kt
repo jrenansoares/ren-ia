@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import br.com.projetoia.app.AppScope
+import br.com.projetoia.app.data.ai.claude.ClaudeGatewayManager
+import br.com.projetoia.app.data.ai.claude.GatewaySession
 import br.com.projetoia.app.data.db.entity.WorkspaceEntity
 import br.com.projetoia.app.data.repository.WorkspaceRepository
 import me.rerere.workspace.WorkspaceManager
@@ -35,6 +37,7 @@ class WorkspaceTerminalSessionManager internal constructor(
     private val appScope: AppScope,
     private val workspaceManager: WorkspaceManager,
     private val workspaceRepository: WorkspaceRepository,
+    private val claudeGatewayManager: ClaudeGatewayManager? = null,
 ) {
     private val appContext = context.applicationContext
     private val workspaceStates = MutableStateFlow<Map<String, WorkspaceTerminalTabsState>>(emptyMap())
@@ -88,6 +91,7 @@ class WorkspaceTerminalSessionManager internal constructor(
         closedTab?.let { tab ->
             tab.client.terminalView = null
             tab.session.finishIfRunning()
+            tab.gatewaySession?.release()
         }
     }
 
@@ -104,6 +108,7 @@ class WorkspaceTerminalSessionManager internal constructor(
         state.tabs.forEach { tab ->
             tab.client.terminalView = null
             tab.session.finishIfRunning()
+            tab.gatewaySession?.release()
         }
     }
 
@@ -172,17 +177,20 @@ class WorkspaceTerminalSessionManager internal constructor(
             onTitleUpdated = { title -> updateTitle(root, tabId, title) },
             onFinished = { markFinished(root = root, tabId = tabId) },
         )
+        val gatewaySession = claudeGatewayManager?.acquireSession()
         val session = runCatching {
             createWorkspaceTerminalSession(
-                transport = terminalTransport(workspace),
+                transport = terminalTransport(workspace, gatewaySession),
                 root = root,
                 client = client,
             )
         }.onFailure { error ->
+            gatewaySession?.release()
             Log.e(TAG, "Failed to create terminal for workspace $root", error)
         }.getOrNull()
 
         if (session == null) {
+            gatewaySession?.release()
             updateState(root) { it.copy(isCreating = false) }
             return@withContext
         }
@@ -192,6 +200,7 @@ class WorkspaceTerminalSessionManager internal constructor(
             number = tabNumber,
             session = session,
             client = client,
+            gatewaySession = gatewaySession,
         )
         updateState(root) { state ->
             state.copy(
@@ -204,14 +213,15 @@ class WorkspaceTerminalSessionManager internal constructor(
         }
     }
 
-    private fun terminalTransport(workspace: WorkspaceEntity): TerminalTransport =
+    private fun terminalTransport(workspace: WorkspaceEntity, gatewaySession: GatewaySession? = null): TerminalTransport =
         if (workspace.isSsh()) {
             val settings = workspace.sshSettings() ?: error("SSH workspace config is missing: ${workspace.id}")
             SshTerminalTransport(address = "${settings.username}@${settings.host}:${settings.port}") { columns, rows ->
                 workspaceRepository.openSshShell(workspace, columns, rows)
             }
         } else {
-            workspaceManager.terminalLaunch(workspace.root, workspace.shellCompatibilityMode)?.toTransport()
+            val extraEnv = gatewaySession?.toEnvironment() ?: emptyMap()
+            workspaceManager.terminalLaunch(workspace.root, workspace.shellCompatibilityMode, extraEnv = extraEnv)?.toTransport()
                 ?: error("Interactive terminal is not supported")
         }
 
@@ -274,6 +284,7 @@ internal data class WorkspaceTerminalTab(
     val client: WorkspaceTerminalSessionClient,
     val title: String? = null,
     val finished: Boolean = false,
+    val gatewaySession: GatewaySession? = null,
 )
 
 internal enum class WorkspaceTerminalReadiness {

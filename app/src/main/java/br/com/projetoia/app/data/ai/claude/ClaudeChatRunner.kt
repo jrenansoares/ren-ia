@@ -145,7 +145,7 @@ class ClaudeChatRunner(
                 lastUsage.set(result.usage)
                 steps++
                 activity("Claude Code recebeu a resposta da IA")
-                AnthropicBridgeCodec.response(result)
+                AnthropicBridgeCodec.response(result, request.requestedModel)
             }
             val heartbeat = launch {
                 while (isActive) {

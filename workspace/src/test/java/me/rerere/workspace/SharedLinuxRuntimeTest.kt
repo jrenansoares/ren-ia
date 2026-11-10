@@ -118,6 +118,19 @@ class SharedLinuxRuntimeTest {
         assertTrue("${File(manager.tempDir("video"), "linux-tmp").absolutePath}:/tmp" in terminal.args)
     }
 
+    @Test fun terminalLaunchPassesExtraEnvironmentIntoProot() {
+        val manager = WorkspaceManager(temporary.newFolder(), shellRunner = ProotShellRunner(temporary.newFolder()))
+        rootfs(manager.sharedLinuxDir())
+        manager.ensureWorkspace("envtest")
+        val terminal = manager.terminalLaunch(
+            "envtest",
+            false,
+            extraEnv = mapOf("ANTHROPIC_BASE_URL" to "http://127.0.0.1:54321", "ANTHROPIC_MODEL" to "projeto-free"),
+        )!!
+        assertTrue("ANTHROPIC_BASE_URL=http://127.0.0.1:54321" in terminal.args)
+        assertTrue("ANTHROPIC_MODEL=projeto-free" in terminal.args)
+    }
+
     @Test fun temporaryCleanupPreservesTheSharedInstallerAndOldRuntimeRecoveryCopy() {
         val manager = WorkspaceManager(temporary.newFolder())
         rootfs(manager.sharedLinuxDir())

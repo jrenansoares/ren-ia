@@ -8,6 +8,7 @@ import br.com.projetoia.app.data.ai.RoutingObserver
 import br.com.projetoia.app.data.ai.ModelCheckManager
 import br.com.projetoia.app.data.ai.claude.ClaudeApprovals
 import br.com.projetoia.app.data.ai.claude.ClaudeChatRunner
+import br.com.projetoia.app.data.ai.claude.ClaudeGatewayManager
 import br.com.projetoia.app.data.ai.tools.ChatToolFactory
 import br.com.projetoia.app.data.ai.tools.local.LocalTools
 import br.com.projetoia.app.data.event.AppEventBus
@@ -61,7 +62,11 @@ val appModule = module {
     }
 
     single {
-        WorkspaceTerminalSessionManager(get(), get(), get(), get())
+        ClaudeGatewayManager(get(), get(), get(), get())
+    }
+
+    single {
+        WorkspaceTerminalSessionManager(get(), get(), get(), get(), get())
     }
 
     // 生成通知与业务解耦：ChatService 只发事件，通知由这里消费；

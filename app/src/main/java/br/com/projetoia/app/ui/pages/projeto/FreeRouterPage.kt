@@ -1,15 +1,19 @@
 package br.com.projetoia.app.ui.pages.projeto
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -37,6 +41,8 @@ import br.com.projetoia.app.data.ai.ModelCheckManager
 import br.com.projetoia.app.data.ai.ModelCostAcknowledgement
 import br.com.projetoia.app.data.ai.providerFallbackPriority
 import br.com.projetoia.app.data.ai.routeScore
+import br.com.projetoia.app.data.ai.routeProfileScore
+import br.com.projetoia.app.data.datastore.RoutingProfile
 import br.com.projetoia.app.data.datastore.SettingsStore
 import br.com.projetoia.app.Screen
 import me.rerere.ai.provider.ProviderSetting
@@ -57,6 +63,7 @@ fun FreeRouterPage() {
     val scope = rememberCoroutineScope()
     val nav = LocalNavController.current
     var pendingCostAuthorization by remember { mutableStateOf<Pair<ProviderSetting, Model>?>(null) }
+    val activeProfile = settings.freeRouter.activeProfile
     val available = settings.providers.flatMap { provider ->
         provider.models.filter { isAutomaticRouteCandidate(provider, it) }.map { provider to it }
     }.sortedWith(
@@ -68,7 +75,7 @@ fun FreeRouterPage() {
             }
         }
             .thenBy { providerFallbackPriority(it.first) }
-            .thenByDescending { modelStabilityScore(it.second) + routeScore(it.second, "programação código") }
+            .thenByDescending { routeProfileScore(it.second, activeProfile, "programação código") }
             .thenBy { it.second.displayName.ifBlank { it.second.modelId }.lowercase() }
     )
     Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.projeto_router)) }, navigationIcon = { BackButton() }) }) { padding ->
@@ -79,6 +86,63 @@ fun FreeRouterPage() {
         ) {
             item {
                 Text(stringResource(R.string.projeto_router_intro), style = MaterialTheme.typography.bodyLarge)
+            }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        stringResource(R.string.projeto_router_profile_title),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        RoutingProfile.entries.forEach { profile ->
+                            val label = when (profile) {
+                                RoutingProfile.AUTO -> stringResource(R.string.projeto_router_profile_auto)
+                                RoutingProfile.CODING -> stringResource(R.string.projeto_router_profile_coding)
+                                RoutingProfile.REASONING -> stringResource(R.string.projeto_router_profile_reasoning)
+                                RoutingProfile.VISION -> stringResource(R.string.projeto_router_profile_vision)
+                                RoutingProfile.VIDEO -> stringResource(R.string.projeto_router_profile_video)
+                                RoutingProfile.FAST -> stringResource(R.string.projeto_router_profile_fast)
+                                RoutingProfile.CUSTOM -> stringResource(R.string.projeto_router_profile_custom)
+                            }
+                            FilterChip(
+                                selected = profile == activeProfile,
+                                onClick = {
+                                    scope.launch {
+                                        store.update { latest ->
+                                            latest.copy(freeRouter = latest.freeRouter.copy(activeProfile = profile))
+                                        }
+                                    }
+                                },
+                                label = { Text(label) },
+                            )
+                        }
+                    }
+                    val profileDesc = when (activeProfile) {
+                        RoutingProfile.AUTO -> stringResource(R.string.projeto_router_profile_auto_desc)
+                        RoutingProfile.CODING -> stringResource(R.string.projeto_router_profile_coding_desc)
+                        RoutingProfile.REASONING -> stringResource(R.string.projeto_router_profile_reasoning_desc)
+                        RoutingProfile.VISION -> stringResource(R.string.projeto_router_profile_vision_desc)
+                        RoutingProfile.VIDEO -> stringResource(R.string.projeto_router_profile_video_desc)
+                        RoutingProfile.FAST -> stringResource(R.string.projeto_router_profile_fast_desc)
+                        RoutingProfile.CUSTOM -> stringResource(R.string.projeto_router_profile_custom_desc)
+                    }
+                    Text(
+                        profileDesc,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            item {
+                CardGroup {
+                    item(
+                        headlineContent = { Text(stringResource(R.string.projeto_claude_gateway_active)) },
+                        supportingContent = { Text("Claude Code no Linux pronto para usar as IAs deste perfil") },
+                    )
+                }
             }
             item {
                 TextButton(onClick = { nav.navigate(Screen.ModelChecks) }, shapes = androidx.compose.material3.ButtonDefaults.shapes(shape = androidx.compose.ui.graphics.RectangleShape, pressedShape = androidx.compose.ui.graphics.RectangleShape), elevation = null) {
