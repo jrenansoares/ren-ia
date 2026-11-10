@@ -41,4 +41,31 @@ class ModelProbeTest {
         assertEquals(ModelCheckStatus.OK, result.toolStatus)
         assertFalse(ModelAbility.TOOL in model.abilities)
     }
+
+    @Test fun reasoningModelAndFormattedTextRepliesPassProbe() = runBlocking {
+        val model = Model(modelId = "deepseek-r1-distill-llama-70b", chatSupported = true, abilities = listOf(ModelAbility.REASONING))
+        val setting = ProviderSetting.OpenAI(baseUrl = "https://api.groq.com/openai/v1", apiKey = "fake", models = listOf(model))
+        val fake = object : Provider<ProviderSetting> {
+            override suspend fun listModels(providerSetting: ProviderSetting) = listOf(model)
+            override suspend fun streamText(providerSetting: ProviderSetting, messages: List<UIMessage>, params: TextGenerationParams): Flow<StreamChunk> = error("unused")
+            override suspend fun generateText(providerSetting: ProviderSetting, messages: List<UIMessage>, params: TextGenerationParams): TextGenerationResult {
+                val part = if (params.tools.isEmpty()) {
+                    UIMessagePart.Text("Resultado calculado com sucesso.")
+                } else {
+                    UIMessagePart.Tool("call-1", "connection_probe", "{\"token\":\"ok\"}")
+                }
+                return TextGenerationResult("test", model.modelId, UIMessage(role = MessageRole.ASSISTANT, parts = listOf(part)))
+            }
+        }
+        val result = ModelProbe({ fake }).check(setting, model)
+        assertEquals(ModelCheckStatus.OK, result.status)
+        assertTrue(result.toolsVerified)
+    }
+
+    @Test fun stabilityScorePrioritizesProductionModelsOverExperimentalAcrossProviders() {
+        assertTrue(modelStabilityScore(Model(modelId = "gemini-2.5-flash")) > modelStabilityScore(Model(modelId = "gemini-3.8-flash")))
+        assertTrue(modelStabilityScore(Model(modelId = "gemini-2.0-flash")) > modelStabilityScore(Model(modelId = "gemini-4-argon")))
+        assertTrue(modelStabilityScore(Model(modelId = "llama-3.3-70b-versatile")) > modelStabilityScore(Model(modelId = "llama-preview-exp")))
+        assertTrue(modelStabilityScore(Model(modelId = "meta/llama-3.3-70b-instruct")) > modelStabilityScore(Model(modelId = "experimental-beta")))
+    }
 }

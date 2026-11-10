@@ -54,6 +54,38 @@ internal fun providerFallbackPriority(provider: ProviderSetting): Int {
     }
 }
 
+internal fun modelStabilityScore(model: Model): Int {
+    val id = model.modelId.lowercase(java.util.Locale.ROOT)
+    var score = 0
+    when {
+        id == "gemini-2.5-flash" || id.endsWith("/gemini-2.5-flash") -> score += 90
+        id == "gemini-2.5-flash-lite" || id.endsWith("/gemini-2.5-flash-lite") -> score += 85
+        id == "gemini-2.0-flash" || id.endsWith("/gemini-2.0-flash") -> score += 82
+        id == "gemini-2.0-flash-lite" || id.endsWith("/gemini-2.0-flash-lite") -> score += 78
+        id == "gemini-flash-latest" || id == "gemini-flash-lite-latest" -> score += 75
+        id == "gemini-1.5-flash" || id == "gemini-1.5-flash-latest" -> score += 72
+        id == "gemini-2.5-pro" || id.endsWith("/gemini-2.5-pro") -> score += 68
+        id == "llama-3.3-70b-versatile" || id.endsWith("/llama-3.3-70b-instruct") || id.contains("llama-3.3-70b") -> score += 88
+        id == "llama-3.1-8b-instant" || id.endsWith("/llama-3.1-8b-instruct") || id.contains("llama-3.1-8b") -> score += 80
+        id.contains("llama-4-scout") || id.contains("llama-4-maverick") -> score += 78
+        id.contains("qwen-qwq-32b") || id.contains("qwen3-32b") || id.contains("qwen2.5-coder-32b") || id.contains("qwen2.5-72b") -> score += 76
+        id == "deepseek-chat" || id.endsWith("/deepseek-v3") || id.contains("deepseek-r1-distill-llama-70b") -> score += 84
+        id == "deepseek-reasoner" || id.endsWith("/deepseek-r1") -> score += 74
+        id.contains("nemotron-ultra") || id.contains("nemotron-super") || id.contains("llama-3.1-nemotron-70b") -> score += 75
+        id.contains("gemma2-9b-it") || id.contains("gemma-3-27b-it") || id.contains("gemma-2-27b-it") -> score += 70
+        id.contains("mistral-small-latest") || id.contains("codestral-latest") || id.contains("mistral-large-latest") -> score += 75
+        id.contains("command-r-plus") || id.contains("command-r") || id.contains("command-a") -> score += 72
+        id.contains("claude-3-7-sonnet") || id.contains("claude-3-5-sonnet") || id.contains("claude-3-5-haiku") || id.contains("claude-sonnet-4") -> score += 80
+        id == "gpt-4o-mini" || id == "gpt-4o" || id == "gpt-4.1-mini" || id == "gpt-4.1" -> score += 80
+        id == "openrouter/free" -> score += 85
+        id.endsWith(":free") -> score += 45
+    }
+    if (listOf("argon", "3.8", "experimental", "-exp", "preview", "customtools", "thinking-exp", "learnlm", "-001", "beta").any { it in id }) {
+        score -= 60
+    }
+    return score
+}
+
 internal fun routeScore(model: Model, task: String): Int {
     val name = (model.modelId + " " + model.displayName).lowercase(java.util.Locale.ROOT)
     val query = task.lowercase(java.util.Locale.ROOT)
@@ -78,7 +110,7 @@ internal fun Settings.automaticRoutes(task: String, preferredModelId: Uuid? = nu
 }.sortedWith(
     compareBy<FreeRoute> { if (it.model.id == preferredModelId) 0 else 1 }
         .thenBy { providerFallbackPriority(it.provider) }
-        .thenByDescending { routeScore(it.model, task) + routeLearningScore(routeHealth(it.provider, it.model)) }
+        .thenByDescending { routeScore(it.model, task) + modelStabilityScore(it.model) + routeLearningScore(routeHealth(it.provider, it.model)) }
         .thenBy { freeRouter.approvedModelIds.indexOf(it.model.id) },
 )
 

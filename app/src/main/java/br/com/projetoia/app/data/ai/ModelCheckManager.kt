@@ -50,10 +50,13 @@ internal class ModelCheckManager(
             provider.models.filter { model ->
                 (modelId == null || model.id == modelId) && canProbeModel(provider, model) &&
                     (!confirmedFreeOnly || (
-                        isConfirmedFreeProbe(provider, model) &&
-                            (modelId != null || snapshot.modelCheck(provider, model)?.let { it.toolsVerified || it.toolStatus != null } != true)
+                        (isConfirmedFreeProbe(provider, model) || snapshot.hasCostAcknowledged(provider, model)) &&
+                            (modelId != null || snapshot.modelCheck(provider, model)?.status != ModelCheckStatus.OK)
                         ))
-            }.map { FreeRoute(provider, it) }
+            }.sortedWith(
+                compareByDescending<me.rerere.ai.provider.Model> { modelStabilityScore(it) + routeScore(it, "programação código análise") }
+                    .thenBy { it.modelId }
+            ).map { FreeRoute(provider, it) }
         }.take(if (confirmedFreeOnly && modelId == null) MAX_BATCH_MODELS else Int.MAX_VALUE)
         if (routes.isEmpty()) return
         mutableProgress.value = ModelCheckProgress(running = true, total = routes.size)
@@ -86,8 +89,38 @@ internal class ModelCheckManager(
                                         if (blockStatus == ModelCheckStatus.AUTH_ERROR) ModelCheckStatus.BLOCKED_AUTH else ModelCheckStatus.BLOCKED_QUOTA,
                                     ) else probe.check(currentProvider, currentModel)
                                     currentCoroutineContext().ensureActive()
-                                    store.update { it.recordModelCheck(check) }
-                                    if (check.status in setOf(ModelCheckStatus.AUTH_ERROR, ModelCheckStatus.QUOTA)) blockStatus = check.status
+                                    store.update { current ->
+                                        var updated = current.recordModelCheck(check)
+                                        if (check.status == ModelCheckStatus.OK) {
+                                            val p = updated.providers.firstOrNull { it.id == currentProvider.id }
+                                            val m = p?.models?.firstOrNull { it.id == currentModel.id }
+                                            if (p != null && m != null) {
+                                                val acks = if (!isConfirmedFreeProbe(p, m) && !updated.hasCostAcknowledged(p, m) && modelId != null) {
+                                                    val ack = ModelCostAcknowledgement(p.id, m.id, modelCheckFingerprint(p, m))
+                                                    updated.freeRouter.costAcknowledgements.filterNot {
+                                                        it.providerId == ack.providerId && it.modelId == ack.modelId
+                                                    } + ack
+                                                } else {
+                                                    updated.freeRouter.costAcknowledgements
+                                                }
+                                                val shouldApprove = m.id !in updated.freeRouter.excludedModelIds || modelId != null
+                                                val approved = if (shouldApprove) (updated.freeRouter.approvedModelIds + m.id).distinct() else updated.freeRouter.approvedModelIds
+                                                val excluded = if (modelId != null) updated.freeRouter.excludedModelIds - m.id else updated.freeRouter.excludedModelIds
+                                                val nextChatModelId = if (updated.chatModelId == br.com.projetoia.app.data.datastore.DEFAULT_AUTO_MODEL_ID) m.id else updated.chatModelId
+                                                updated = updated.copy(
+                                                    chatModelId = nextChatModelId,
+                                                    freeRouter = updated.freeRouter.copy(
+                                                        enabled = true,
+                                                        approvedModelIds = approved,
+                                                        excludedModelIds = excluded,
+                                                        costAcknowledgements = acks,
+                                                    ),
+                                                )
+                                            }
+                                        }
+                                        updated
+                                    }
+                                    if (check.httpStatus in setOf(401, 402)) blockStatus = check.status
                                     mutableProgress.update { it.copy(
                                         completed = it.completed + 1,
                                         passed = it.passed + if (check.status == ModelCheckStatus.OK) 1 else 0,

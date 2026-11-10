@@ -82,6 +82,12 @@ import me.rerere.hugeicons.stroke.Text
 import me.rerere.hugeicons.stroke.Tools
 import br.com.projetoia.app.R
 import br.com.projetoia.app.Screen
+import br.com.projetoia.app.data.ai.ModelCheckStatus
+import br.com.projetoia.app.data.ai.hasConfiguredCredentials
+import br.com.projetoia.app.data.ai.hasPassedModelCheck
+import br.com.projetoia.app.data.ai.modelCheck
+import br.com.projetoia.app.data.ai.modelStabilityScore
+import br.com.projetoia.app.data.ai.routeScore
 import br.com.projetoia.app.data.datastore.SettingsStore
 import br.com.projetoia.app.data.datastore.findModelById
 import br.com.projetoia.app.data.datastore.findProvider
@@ -119,7 +125,7 @@ class ModelListState internal constructor(
 
     val filteredProviders: List<ProviderSetting>
         get() = providers.fastFilter { provider ->
-            provider.enabled && provider.models.fastAny { model -> model.type == type && (type != ModelType.CHAT || model.supportsConversation()) }
+            provider.enabled && provider.hasConfiguredCredentials() && provider.models.fastAny { model -> model.type == type && (type != ModelType.CHAT || model.supportsConversation()) }
         }
 
     fun open() {
@@ -355,16 +361,29 @@ private fun ColumnScope.ModelList(
             .joinToString(",")
     }
 
-    val typeFilteredModelsByProvider = remember(providers, modelType) {
+    val typeFilteredModelsByProvider = remember(providers, modelType, settings.value.freeRouter) {
         providers.associate { provider ->
-            provider.id to provider.models.fastFilter { it.type == modelType && (modelType != ModelType.CHAT || it.supportsConversation()) }
+            provider.id to provider.models
+                .fastFilter { it.type == modelType && (modelType != ModelType.CHAT || it.supportsConversation()) }
+                .sortedWith(
+                    compareBy<Model> { model ->
+                        when (settings.value.modelCheck(provider, model)?.status) {
+                            ModelCheckStatus.OK -> 0
+                            null -> 1
+                            else -> 2
+                        }
+                    }
+                        .thenByDescending { model -> if (model.id in settings.value.freeRouter.approvedModelIds) 1 else 0 }
+                        .thenByDescending { model -> modelStabilityScore(model) + routeScore(model, "programação código análise") }
+                        .thenBy { model -> model.displayName.ifBlank { model.modelId }.lowercase() }
+                )
         }
     }
 
-    val searchFilteredModelsByProvider = remember(providers, modelType, searchKeywords) {
+    val searchFilteredModelsByProvider = remember(providers, typeFilteredModelsByProvider, searchKeywords) {
         providers.associate { provider ->
-            provider.id to provider.models.fastFilter {
-                it.type == modelType && (modelType != ModelType.CHAT || it.supportsConversation()) && it.displayName.contains(searchKeywords, true)
+            provider.id to typeFilteredModelsByProvider[provider.id].orEmpty().fastFilter {
+                it.displayName.contains(searchKeywords, true) || it.modelId.contains(searchKeywords, true)
             }
         }
     }

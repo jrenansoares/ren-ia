@@ -32,6 +32,8 @@ import br.com.projetoia.app.data.ai.isConfirmedFreeProbe
 import br.com.projetoia.app.data.ai.hasPassedModelCheck
 import br.com.projetoia.app.data.ai.hasCostAcknowledged
 import br.com.projetoia.app.data.ai.modelCheckFingerprint
+import br.com.projetoia.app.data.ai.modelStabilityScore
+import br.com.projetoia.app.data.ai.ModelCheckManager
 import br.com.projetoia.app.data.ai.ModelCostAcknowledgement
 import br.com.projetoia.app.data.ai.providerFallbackPriority
 import br.com.projetoia.app.data.ai.routeScore
@@ -49,13 +51,26 @@ import androidx.compose.runtime.setValue
 @Composable
 fun FreeRouterPage() {
     val store = koinInject<SettingsStore>()
+    val checkManager = koinInject<ModelCheckManager>()
+    val checkProgress by checkManager.progress.collectAsStateWithLifecycle()
     val settings by store.settingsFlow.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val nav = LocalNavController.current
     var pendingCostAuthorization by remember { mutableStateOf<Pair<ProviderSetting, Model>?>(null) }
     val available = settings.providers.flatMap { provider ->
         provider.models.filter { isAutomaticRouteCandidate(provider, it) }.map { provider to it }
-    }.sortedWith(compareBy<Pair<ProviderSetting, Model>> { providerFallbackPriority(it.first) }.thenBy { routeScore(it.second, "programação código") })
+    }.sortedWith(
+        compareBy<Pair<ProviderSetting, Model>> { (provider, model) ->
+            when {
+                model.id in settings.freeRouter.approvedModelIds && settings.hasPassedModelCheck(provider, model) -> 0
+                settings.hasPassedModelCheck(provider, model) -> 1
+                else -> 2
+            }
+        }
+            .thenBy { providerFallbackPriority(it.first) }
+            .thenByDescending { modelStabilityScore(it.second) + routeScore(it.second, "programação código") }
+            .thenBy { it.second.displayName.ifBlank { it.second.modelId }.lowercase() }
+    )
     Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.projeto_router)) }, navigationIcon = { BackButton() }) }) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
@@ -133,15 +148,25 @@ fun FreeRouterPage() {
                 val costAcknowledged = settings.hasCostAcknowledged(provider, model)
                 val routeReady = verified && (confirmedFree || costAcknowledged)
                 fun toggle() {
+                    if (!verified) {
+                        if (!checkProgress.running) {
+                            checkManager.start(provider.id, model.id, confirmedFreeOnly = false)
+                        }
+                        return
+                    }
                     if (!routeReady) {
-                        if (verified && !confirmedFree && !costAcknowledged) pendingCostAuthorization = provider to model
+                        if (!confirmedFree && !costAcknowledged) pendingCostAuthorization = provider to model
                         return
                     }
                     scope.launch {
                         store.update {
                             val ids = it.freeRouter.approvedModelIds
-                            it.copy(freeRouter = it.freeRouter.copy(approvedModelIds = if (model.id in ids) ids - model.id else ids + model.id,
-                                excludedModelIds = if (model.id in ids) (it.freeRouter.excludedModelIds + model.id).distinct() else it.freeRouter.excludedModelIds - model.id))
+                            val approving = model.id !in ids
+                            it.copy(freeRouter = it.freeRouter.copy(
+                                enabled = if (approving) true else it.freeRouter.enabled,
+                                approvedModelIds = if (model.id in ids) ids - model.id else ids + model.id,
+                                excludedModelIds = if (model.id in ids) (it.freeRouter.excludedModelIds + model.id).distinct() else it.freeRouter.excludedModelIds - model.id,
+                            ))
                         }
                     }
                 }
@@ -152,7 +177,7 @@ fun FreeRouterPage() {
                         supportingContent = {
                             Text("${provider.name} · ${if (verified) stringResource(R.string.projeto_model_check_ok) else stringResource(R.string.projeto_model_check_not_tested)} · ${stringResource(if (confirmedFree) R.string.projeto_router_price_free else if (costAcknowledged) R.string.projeto_router_price_confirmed else R.string.projeto_router_price_unknown)}")
                         },
-                        trailingContent = { Checkbox(checked = checked, enabled = routeReady || (verified && !confirmedFree), onCheckedChange = { toggle() }) },
+                        trailingContent = { Checkbox(checked = checked, enabled = !checkProgress.running, onCheckedChange = { toggle() }) },
                     )
                 }
             }

@@ -27,15 +27,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import br.com.projetoia.app.R
+import br.com.projetoia.app.data.ai.authorizeProviderRouting
+import br.com.projetoia.app.data.ai.hasConfiguredCredentials
 import br.com.projetoia.app.data.ai.hasCostAcknowledged
 import br.com.projetoia.app.data.ai.catalogAllows
+import br.com.projetoia.app.data.ai.modelStabilityScore
 import br.com.projetoia.app.data.ai.routeHealth
+import br.com.projetoia.app.data.ai.routeScore
 import me.rerere.ai.provider.Modality
 import br.com.projetoia.app.data.ai.ModelCheckManager
 import br.com.projetoia.app.data.ai.ModelCheckStatus
@@ -55,11 +61,15 @@ fun ModelChecksPage() {
     val manager = koinInject<ModelCheckManager>()
     val settings by store.settingsFlow.collectAsStateWithLifecycle()
     val progress by manager.progress.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
     var search by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(0) }
     var pendingPaidCheck by remember { mutableStateOf<Pair<ProviderSetting, Model>?>(null) }
-    val models = remember(settings, search, filter) {
-        settings.providers.flatMap { provider ->
+    val configuredProviders = remember(settings.providers) {
+        settings.providers.filter { it.enabled && it.hasConfiguredCredentials() }
+    }
+    val models = remember(settings, configuredProviders, search, filter) {
+        configuredProviders.flatMap { provider ->
             provider.models.map { provider to it }
         }.filter { (provider, model) ->
             search.isBlank() || provider.name.contains(search, ignoreCase = true) ||
@@ -68,16 +78,31 @@ fun ModelChecksPage() {
             val result = settings.modelCheck(provider, model)
             val ready = result?.status == ModelCheckStatus.OK && settings.catalogAllows(provider, model) && (settings.routeHealth(provider, model)?.cooldownUntil ?: 0) <= System.currentTimeMillis()
             when (filter) { 1 -> ready; 2 -> ready && result?.toolsVerified == true; 3 -> Modality.IMAGE in model.inputModalities; else -> true }
-        }.sortedWith(compareBy({ it.first.name.lowercase() }, { it.second.displayName.ifBlank { it.second.modelId }.lowercase() }))
+        }.sortedWith(
+            compareBy<Pair<ProviderSetting, Model>> { (provider, model) ->
+                when (settings.modelCheck(provider, model)?.status) {
+                    ModelCheckStatus.OK -> 0
+                    null -> 1
+                    else -> 2
+                }
+            }
+                .thenBy { it.first.name.lowercase() }
+                .thenByDescending { (_, model) -> modelStabilityScore(model) + routeScore(model, "programação código análise") }
+                .thenBy { it.second.displayName.ifBlank { it.second.modelId }.lowercase() }
+        )
     }
-    val pendingFreeModels = settings.providers.sumOf { provider ->
+    val pendingFreeModels = configuredProviders.sumOf { provider ->
         provider.models.count {
-            isConfirmedFreeProbe(provider, it) &&
-                settings.modelCheck(provider, it)?.let { check -> check.toolsVerified || check.toolStatus != null } != true
+            canProbeModel(provider, it) &&
+                (isConfirmedFreeProbe(provider, it) || settings.hasCostAcknowledged(provider, it)) &&
+                settings.modelCheck(provider, it)?.status != ModelCheckStatus.OK
         }
     }
-    val allCount = settings.providers.sumOf { it.models.size }
-    val passed = settings.providers.sumOf { provider -> provider.models.count { model -> settings.modelCheck(provider, model)?.status == ModelCheckStatus.OK && settings.catalogAllows(provider, model) && (settings.routeHealth(provider, model)?.cooldownUntil ?: 0) <= System.currentTimeMillis() } }
+    val anyProbeableModels = configuredProviders.sumOf { provider ->
+        provider.models.count { canProbeModel(provider, it) }
+    }
+    val allCount = configuredProviders.sumOf { it.models.size }
+    val passed = configuredProviders.sumOf { provider -> provider.models.count { model -> settings.modelCheck(provider, model)?.status == ModelCheckStatus.OK && settings.catalogAllows(provider, model) && (settings.routeHealth(provider, model)?.cooldownUntil ?: 0) <= System.currentTimeMillis() } }
 
     Scaffold(
         topBar = {
@@ -100,8 +125,21 @@ fun ModelChecksPage() {
             }
             item {
                 Button(
-                    onClick = { manager.start(confirmedFreeOnly = true) },
-                    enabled = !progress.running && pendingFreeModels > 0,
+                    onClick = {
+                        scope.launch {
+                            if (pendingFreeModels == 0) {
+                                store.update { current ->
+                                    var updated = current
+                                    current.providers.filter { it.enabled && it.hasConfiguredCredentials() }.forEach { p ->
+                                        updated = updated.authorizeProviderRouting(p)
+                                    }
+                                    updated.copy(freeRouter = updated.freeRouter.copy(automaticManagement = true))
+                                }
+                            }
+                            manager.start(confirmedFreeOnly = true)
+                        }
+                    },
+                    enabled = !progress.running && (pendingFreeModels > 0 || anyProbeableModels > 0),
                     modifier = Modifier.fillMaxWidth(), shapes = androidx.compose.material3.ButtonDefaults.shapes(shape = androidx.compose.ui.graphics.RectangleShape, pressedShape = androidx.compose.ui.graphics.RectangleShape),
                     elevation = null,
                 ) {
@@ -192,8 +230,11 @@ fun ModelChecksPage() {
                                 TextButton(
                                     enabled = canCheck && !progress.running,
                                     onClick = {
-                                        if (isFree) manager.start(provider.id, model.id, confirmedFreeOnly = true)
-                                        else pendingPaidCheck = provider to model
+                                        if (isFree || settings.hasCostAcknowledged(provider, model)) {
+                                            manager.start(provider.id, model.id, confirmedFreeOnly = false)
+                                        } else {
+                                            pendingPaidCheck = provider to model
+                                        }
                                     }, shapes = androidx.compose.material3.ButtonDefaults.shapes(shape = androidx.compose.ui.graphics.RectangleShape, pressedShape = androidx.compose.ui.graphics.RectangleShape),
                                     elevation = null,
                                 ) {

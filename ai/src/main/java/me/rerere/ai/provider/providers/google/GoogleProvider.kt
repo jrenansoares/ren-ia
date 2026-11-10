@@ -175,8 +175,6 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
             return@withContext interactionsAPI.generateText(providerSetting, messages, params)
         }
 
-        val requestBody = buildCompletionRequestBody(messages, params)
-
         val url = buildUrl(
             providerSetting = providerSetting,
             path = if (providerSetting.vertexAI) {
@@ -186,20 +184,36 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
             }
         )
 
-        val request = transformRequest(
+        fun buildHttpRequest(body: JsonObject): Request = transformRequest(
             providerSetting = providerSetting,
             request = Request.Builder()
                 .url(url)
                 .headers(providerSetting.mergeCustomHeaders(params.customHeaders))
                 .configureSessionHeaders(url.toString(), params.sessionId)
                 .post(
-                    json.encodeToString(requestBody).toRequestBody("application/json".toMediaType())
+                    json.encodeToString(body).toRequestBody("application/json".toMediaType())
                 )
                 .configureReferHeaders(providerSetting.baseUrl)
                 .build()
         )
 
-        val response = client.newCall(request).await()
+        val requestBody = buildCompletionRequestBody(messages, params)
+        var response = client.newCall(buildHttpRequest(requestBody)).await()
+        if (response.code == 400) {
+            val minimalBody = buildMinimalCompletionRequestBody(messages, params)
+            if (minimalBody != requestBody) {
+                response.close()
+                response = client.newCall(buildHttpRequest(minimalBody)).await()
+            }
+            if (response.code == 400 && !providerSetting.vertexAI && !providerSetting.usesInteractionsApi()) {
+                val primaryError = response.providerHttpException()
+                return@withContext try {
+                    interactionsAPI.generateText(providerSetting, messages, params)
+                } catch (_: Exception) {
+                    throw primaryError
+                }
+            }
+        }
         if (!response.isSuccessful) {
             throw response.providerHttpException()
         }
@@ -341,39 +355,25 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                     add(JsonPrimitive("IMAGE"))
                 })
             }
-            if (params.model.abilities.contains(ModelAbility.REASONING)) {
+            if (params.model.abilities.contains(ModelAbility.REASONING) &&
+                params.reasoningLevel != ReasoningLevel.AUTO &&
+                params.reasoningLevel != ReasoningLevel.OFF
+            ) {
                 put("thinkingConfig", buildJsonObject {
                     put("includeThoughts", true)
 
-                    val isGeminiPro =
-                        params.model.modelId.contains(Regex("2\\.5.*pro", RegexOption.IGNORE_CASE))
                     val useThinkingLevel =
                         ModelRegistry.GEMINI_3_SERIES.match(modelId = params.model.modelId) ||
                             ModelRegistry.GEMINI_4.match(modelId = params.model.modelId)
 
-                    when (params.reasoningLevel) {
-                        ReasoningLevel.AUTO -> {} // 自动模式，不设置参数
-
-                        ReasoningLevel.OFF -> {
-                            if (useThinkingLevel) {
-                                put("thinkingLevel", "minimal")
-                            } else if (!isGeminiPro) {
-                                put("thinkingBudget", 0)
-                                put("includeThoughts", false)
-                            }
+                    if (useThinkingLevel) {
+                        when (params.reasoningLevel) {
+                            ReasoningLevel.LOW -> put("thinkingLevel", "low")
+                            ReasoningLevel.MEDIUM -> put("thinkingLevel", "medium")
+                            else -> put("thinkingLevel", "high") // HIGH, XHIGH
                         }
-
-                        else -> {
-                            if (useThinkingLevel) {
-                                when (params.reasoningLevel) {
-                                    ReasoningLevel.LOW -> put("thinkingLevel", "low")
-                                    ReasoningLevel.MEDIUM -> put("thinkingLevel", "medium")
-                                    else -> put("thinkingLevel", "high") // HIGH, XHIGH
-                                }
-                            } else {
-                                put("thinkingBudget", params.reasoningLevel.budgetTokens)
-                            }
-                        }
+                    } else {
+                        put("thinkingBudget", params.reasoningLevel.budgetTokens)
                     }
                 })
             }
@@ -463,12 +463,65 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                 put("category", "HARM_CATEGORY_DANGEROUS_CONTENT")
                 put("threshold", "OFF")
             })
-            add(buildJsonObject {
-                put("category", "HARM_CATEGORY_CIVIC_INTEGRITY")
-                put("threshold", "OFF")
-            })
         }
     }.mergeCustomBody(params.customBody)
+
+    private fun buildMinimalCompletionRequestBody(
+        messages: List<UIMessage>,
+        params: TextGenerationParams
+    ): JsonObject = buildJsonObject {
+        val systemMessage = messages.firstOrNull { it.role == MessageRole.SYSTEM }
+        if (systemMessage != null && !params.model.outputModalities.contains(Modality.IMAGE)) {
+            put("systemInstruction", buildJsonObject {
+                putJsonArray("parts") {
+                    add(buildJsonObject {
+                        put(
+                            "text",
+                            systemMessage.parts.filterIsInstance<UIMessagePart.Text>()
+                                .joinToString { it.text }
+                        )
+                    })
+                }
+            })
+        }
+        put("generationConfig", buildJsonObject {
+            if (params.temperature != null) put("temperature", params.temperature)
+            if (params.topP != null) put("topP", params.topP)
+            if (params.maxTokens != null) put("maxOutputTokens", params.maxTokens)
+        })
+        put("contents", buildContents(messages))
+        val useFunctionTools =
+            params.tools.isNotEmpty() && params.model.abilities.contains(ModelAbility.TOOL)
+        if (useFunctionTools) {
+            putJsonArray("tools") {
+                add(buildJsonObject {
+                    putJsonArray("functionDeclarations") {
+                        params.tools.forEach { tool ->
+                            add(buildJsonObject {
+                                put("name", JsonPrimitive(tool.name))
+                                put("description", JsonPrimitive(tool.description))
+                                put(
+                                    key = "parameters",
+                                    element = json.encodeToJsonElement(tool.parameters())
+                                        .removeElements(
+                                            listOf(
+                                                "const",
+                                                "exclusiveMaximum",
+                                                "exclusiveMinimum",
+                                                "format",
+                                                "additionalProperties",
+                                                "propertyNames",
+                                                "enum",
+                                            )
+                                        )
+                                )
+                            })
+                        }
+                    }
+                })
+            }
+        }
+    }
 
     private fun commonRoleToGoogleRole(role: MessageRole): String {
         return when (role) {
@@ -492,8 +545,8 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
         val role = googleRoleToCommonRole(
             message["role"]?.jsonPrimitive?.contentOrNull ?: "model"
         )
-        val content = message["content"]?.jsonObject ?: error("No content")
-        val parts = parseMessageParts(content["parts"]?.jsonArray)
+        val content = message["content"]?.jsonObject
+        val parts = parseMessageParts(content?.get("parts")?.jsonArray)
 
         val groundingMetadata = message["groundingMetadata"]?.jsonObject
         Log.i(TAG, "parseMessage: $groundingMetadata")

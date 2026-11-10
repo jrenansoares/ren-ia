@@ -14,6 +14,7 @@ private val nonChatTasks = setOf(
     "embedding", "embeddings", "embed", "rerank", "reranker", "guard", "safeguard",
     "moderation", "classifier", "reward", "transcribe", "transcription", "translation", "safety", "parakeet", "riva",
     "imagen", "veo", "flux", "image", "imgen", "sora", "seedance", "ocr", "parse", "retriever",
+    "aqa", "bison", "gecko", "robotics",
 )
 
 /** A catalog default of CHAT is not evidence that a model can hold a conversation. */

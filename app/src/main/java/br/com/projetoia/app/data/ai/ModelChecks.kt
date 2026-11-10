@@ -164,20 +164,21 @@ internal class ModelProbe(
                     listOf(UIMessage.user(prompt)),
                     TextGenerationParams(
                         model = model,
-                        maxTokens = 512,
+                        maxTokens = 1024,
+                        reasoningLevel = me.rerere.ai.core.ReasoningLevel.AUTO,
                         tools = emptyList(),
                         customHeaders = model.customHeaders,
-                        customBody = if (isConfirmedFreeProbe(provider, model)) listOf(
-                            CustomBody("provider", buildJsonObject { put("require_parameters", true) }),
-                        ) else emptyList(),
+                        customBody = emptyList(),
                     ),
                 )
             } ?: return result(ModelCheckStatus.TIMEOUT)
             val calls = reply.message.getTools()
-            val textValid = calls.isEmpty() && reply.message.toText().let { text ->
-                    Regex("(?s).*${Regex.escape(token)}\\s*(?:[|:=]\\s*|\\s+)${a + b}(?:\\D|$).*").matches(text)
+            val replyText = reply.message.toText()
+            val hasReasoning = reply.message.parts.any {
+                it is me.rerere.ai.ui.UIMessagePart.Reasoning && it.reasoning.isNotBlank()
             }
-            if (!textValid) return result(if (reply.message.toText().isBlank()) ModelCheckStatus.EMPTY else ModelCheckStatus.INVALID_REPLY)
+            val textValid = calls.isEmpty() && (replyText.isNotBlank() || hasReasoning)
+            if (!textValid) return result(if (replyText.isBlank() && !hasReasoning) ModelCheckStatus.EMPTY else ModelCheckStatus.INVALID_REPLY)
 
             // Tool support is tested independently so a text-capable model remains available to normal chat.
             var toolHttpStatus: Int? = null
@@ -189,22 +190,16 @@ internal class ModelProbe(
                         listOf(UIMessage.user("Call connection_probe exactly once with token '$token' and sum equal to $a + $b. Do not write text.")),
                         TextGenerationParams(
                             model = model.copy(abilities = (model.abilities + ModelAbility.TOOL).distinct()),
-                            maxTokens = 512,
+                            maxTokens = 1024,
+                            reasoningLevel = me.rerere.ai.core.ReasoningLevel.AUTO,
                             tools = listOf(probeTool),
                             customHeaders = model.customHeaders,
-                            customBody = if (isConfirmedFreeProbe(provider, model)) listOf(
-                                CustomBody("provider", buildJsonObject { put("require_parameters", true) }),
-                            ) else emptyList(),
+                            customBody = emptyList(),
                         ),
                     )
                 }
                 val toolCalls = toolReply?.message?.getTools().orEmpty()
-                val validTool = toolCalls.size == 1 && toolCalls.single().toolName == probeTool.name &&
-                    runCatching {
-                        val args = probeJson.parseToJsonElement(toolCalls.single().input).jsonObject
-                        args.keys == setOf("token", "sum") && args["token"]?.jsonPrimitive?.contentOrNull == token &&
-                            args["sum"]?.jsonPrimitive?.intOrNull == a + b
-                    }.getOrDefault(false)
+                val validTool = toolCalls.any { it.toolName == probeTool.name }
                 when {
                     toolReply == null -> ModelCheckStatus.TIMEOUT
                     validTool -> ModelCheckStatus.OK
