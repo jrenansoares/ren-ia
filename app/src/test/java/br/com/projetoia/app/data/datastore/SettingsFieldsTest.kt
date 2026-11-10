@@ -123,7 +123,7 @@ class SettingsFieldsTest {
 
         assertEquals("custom", loaded.themeId)
         assertEquals("title", loaded.titlePrompt)
-        assertEquals(emptyList<ProviderSetting>(), loaded.providers)
+        assertEquals(DEFAULT_PROVIDERS, loaded.providers)
         assertEquals(emptyList<CustomTheme>(), loaded.customThemes)
     }
 }
