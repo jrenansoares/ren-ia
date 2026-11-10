@@ -18,6 +18,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.ProviderManager
+import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.ui.UIMessagePart
 
@@ -64,15 +65,15 @@ class ClaudeGatewayManager(
 
                 val statusFlow = MutableStateFlow<String?>(null)
                 val router = FreeRoutingProvider(
-                    getProvider = { setting ->
+                    resolve = { setting: ProviderSetting ->
                         usageRecorder.wrap(
                             providerManager.getProviderByType(setting),
                             UsageTag(UsageSource.CHAT, Uuid.random(), Uuid.random()),
                         )
                     },
-                    routes = candidates,
+                    candidates = candidates,
                     status = statusFlow,
-                    isCandidate = ::isAutomaticRouteCandidate,
+                    allowed = ::isAutomaticRouteCandidate,
                     observe = RoutingObserver(settingsStore)::record,
                 )
 

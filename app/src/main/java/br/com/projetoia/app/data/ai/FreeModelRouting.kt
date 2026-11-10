@@ -126,7 +126,7 @@ internal fun routeProfileScore(
             if (listOf("vision", "vl", "flash", "4o", "sonnet").any { it in id }) score += 30
         }
         br.com.projetoia.app.data.datastore.RoutingProfile.VIDEO -> {
-            if (Modality.VIDEO in model.inputModalities || model.contextLength >= 500_000) score += 70
+            if (model.contextLength >= 500_000) score += 70
             if (listOf("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-2.5-pro").any { it in id }) score += 50
         }
         br.com.projetoia.app.data.datastore.RoutingProfile.FAST -> {
@@ -152,7 +152,7 @@ internal fun Settings.automaticRoutes(
             (routeHealth(provider, it)?.cooldownUntil ?: 0) <= System.currentTimeMillis() &&
             (isConfirmedFreeProbe(provider, it) || hasCostAcknowledged(provider, it)) &&
             (profile != br.com.projetoia.app.data.datastore.RoutingProfile.VISION || Modality.IMAGE in it.inputModalities) &&
-            (profile != br.com.projetoia.app.data.datastore.RoutingProfile.VIDEO || (Modality.VIDEO in it.inputModalities || it.contextLength >= 200_000)) &&
+            (profile != br.com.projetoia.app.data.datastore.RoutingProfile.VIDEO || it.contextLength >= 200_000) &&
             (profile != br.com.projetoia.app.data.datastore.RoutingProfile.CODING || ModelAbility.TOOL in it.abilities || modelCheck(provider, it)?.toolsVerified == true)
     }
         .map { model -> FreeRoute(provider, model, modelCheck(provider, model)?.toolsVerified == true) }
