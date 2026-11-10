@@ -1,0 +1,41 @@
+{
+  "version_name": "0.1.0-alpha15-ren",
+  "version_code": 15,
+  "application_id": "br.com.projetoia.app.debug",
+  "abis": [
+    "arm64-v8a"
+  ],
+  "size_bytes": 60313134,
+  "sha256": "4bf972ce1c838960414d2a11b83f1f62889001c2375b87bfe310e540603c3d65",
+  "assembleGithubDebug": "passed",
+  "signature_verified": true,
+  "signing_certificate_sha256": "8b52983953d2452c8813b7d39e872248c705053c4469e52f884097959b69251f",
+  "same_certificate_as_alpha14": true,
+  "unit_tests": {
+    "app": {
+      "tests": 572,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 3,
+      "passed": 569
+    },
+    "ai": {
+      "tests": 289,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": 289
+    },
+    "workspace": {
+      "tests": 97,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": 97
+    }
+  },
+  "android_device_test": "not performed",
+  "real_provider_keys": "not used",
+  "new_lan_server": "deferred by user",
+  "apk_file": "ren_0.1.0_alpha15_arm64.apk"
+}

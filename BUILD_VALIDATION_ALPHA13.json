@@ -1,0 +1,27 @@
+{
+  "size_bytes": 58556985,
+  "sha256": "fc666de3c63c6d89942e1ccdfc861278aea4da378ac4079aedfbe021fbb0f6b7",
+  "version_name": "0.1.0-alpha13-ren",
+  "version_code": 13,
+  "application_id": "br.com.projetoia.app.debug",
+  "app_label": "Ren",
+  "abis": [
+    "arm64-v8a"
+  ],
+  "assembleGithubDebug": "passed",
+  "signing_certificate_sha256": "8b52983953d2452c8813b7d39e872248c705053c4469e52f884097959b69251f",
+  "signature_verified": true,
+  "same_certificate_as_alpha12": true,
+  "jetbrains_mono": [
+    "res/font/jetbrains_mono.ttf",
+    "res/font/ui_jetbrains_mono.ttf"
+  ],
+  "font_license_in_apk": true,
+  "room_schemas_1_through_32_unchanged": true,
+  "unit_tests": "not rerun",
+  "android_device_test": "not performed",
+  "apk_file": "ren_0.1.0_alpha13_arm64.apk",
+  "signed_after_assembly": true,
+  "network_recovery": "Java configured to use the environment proxy with IPv4; SDK and compiler toolchain restored.",
+  "spotlessCheck": "not rerun"
+}

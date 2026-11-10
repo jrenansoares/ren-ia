@@ -1,0 +1,110 @@
+package br.com.projetoia.app.di
+
+import android.content.Context
+import br.com.projetoia.app.data.files.FileFolders
+import br.com.projetoia.app.data.files.FilesManager
+import br.com.projetoia.app.data.repository.ConversationRepository
+import br.com.projetoia.app.data.repository.FavoriteRepository
+import br.com.projetoia.app.data.repository.FilesRepository
+import br.com.projetoia.app.data.repository.FolderRepository
+import br.com.projetoia.app.data.repository.GenMediaRepository
+import br.com.projetoia.app.data.repository.MediaCreationRepository
+import br.com.projetoia.app.data.repository.MemoryRepository
+import br.com.projetoia.app.data.repository.SharedLinuxRepository
+import br.com.projetoia.app.data.repository.TranslationHistoryRepository
+import br.com.projetoia.app.data.repository.WorkspaceRepository
+import br.com.projetoia.app.data.skills.SkillManager
+import me.rerere.workspace.ProotShellRunner
+import me.rerere.workspace.RootfsInstaller
+import me.rerere.workspace.WorkspaceBindMount
+import me.rerere.workspace.WorkspaceManager
+import me.rerere.workspace.ssh.SshConnectionPool
+import org.koin.dsl.module
+import org.koin.dsl.onClose
+import java.io.File
+
+val repositoryModule = module {
+    single {
+        ConversationRepository(get(), get(), get(), get(), get(), get())
+    }
+
+    single {
+        FolderRepository(get(), get())
+    }
+
+    single {
+        MemoryRepository(get())
+    }
+
+    single {
+        TranslationHistoryRepository(get())
+    }
+
+    single {
+        GenMediaRepository(get())
+    }
+
+    single {
+        MediaCreationRepository(context = get(), database = get(), dao = get(), json = get())
+    }
+
+    single {
+        FilesRepository(get())
+    }
+
+    single {
+        FavoriteRepository(get())
+    }
+
+    single {
+        val context: Context = get()
+        WorkspaceManager(
+            baseDir = File(context.filesDir, "workspaces"),
+            shellRunner = ProotShellRunner(
+                nativeLibraryDir = File(context.applicationInfo.nativeLibraryDir),
+            ),
+            // 同一份挂载表同时用于 PRoot 的 -b 参数 (命令执行与终端)、文件工具的路径解析和写入审批, 避免多处漂移
+            bindMounts = listOf(
+                WorkspaceBindMount(
+                    source = File(context.filesDir, FileFolders.SKILLS).apply { mkdirs() },
+                    target = "/skills",
+                    writable = true,
+                ),
+                WorkspaceBindMount(
+                    source = File(context.filesDir, FileFolders.BUILTIN_SKILLS).apply { mkdirs() },
+                    target = "/builtin_skills",
+                ),
+                WorkspaceBindMount(
+                    source = File(context.filesDir, FileFolders.TOOL_OUTPUTS).apply { mkdirs() },
+                    target = "/tool_outputs",
+                ),
+                WorkspaceBindMount(
+                    source = File(context.filesDir, FileFolders.UPLOAD).apply { mkdirs() },
+                    target = "/upload",
+                ),
+            ),
+        )
+    }
+
+    single {
+        RootfsInstaller(get())
+    }
+
+    single {
+        SshConnectionPool()
+    } onClose { it?.close() }
+
+    single {
+        WorkspaceRepository(get(), get(), get(), get(), get())
+    }
+
+    single { SharedLinuxRepository(get(), get(), get(), get(), get()) }
+
+    single {
+        FilesManager(get(), get(), get())
+    }
+
+    single {
+        SkillManager(get(), get())
+    }
+}

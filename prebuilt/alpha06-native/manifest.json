@@ -1,0 +1,35 @@
+{
+  "source_apk_sha256": "e7398412c5232c62f5e579faf20b123ed5220dbfe82913a8611bd3b940768263",
+  "files": [
+    {
+      "module": "workspace",
+      "path": "prebuilt/alpha06-native/workspace/arm64-v8a/libworkspace.so",
+      "sha256": "a91eb331e5d1fa7e6f15bd23ce50b981d80d08ee81bf98b3edc2ba9e9814ffba"
+    },
+    {
+      "module": "workspace",
+      "path": "workspace/src/main/cpp/CMakeLists.txt",
+      "sha256": "8d2ca7c32913a385996e020b9930b159acad987051bc28140daf64612c2bc784"
+    },
+    {
+      "module": "workspace",
+      "path": "workspace/src/main/cpp/workspace.cpp",
+      "sha256": "7d0c65ac7be4c7cf1348da4846db55f3fe5859c3fbd3f5a89f363b297deac4b3"
+    },
+    {
+      "module": "terminal",
+      "path": "prebuilt/alpha06-native/terminal/arm64-v8a/libtermux.so",
+      "sha256": "a88e9eaec084e601d638c258f2c1c7eec28c60f17cbc8299b14a0aa8a5866c36"
+    },
+    {
+      "module": "terminal",
+      "path": "terminal/src/main/cpp/CMakeLists.txt",
+      "sha256": "b81c595bc8b4387b48349190923edb291622f4576640e7851c757bc5ed8f187a"
+    },
+    {
+      "module": "terminal",
+      "path": "terminal/src/main/cpp/termux_pty.cpp",
+      "sha256": "9222ccd9f2263e3421bca5eed8b23097d41b685c56b38492896bfefb59eade56"
+    }
+  ]
+}

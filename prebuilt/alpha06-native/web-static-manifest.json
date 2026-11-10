@@ -1,0 +1,130 @@
+[
+  {
+    "path": "static/assets/KaTeX_AMS-Regular-BQhdFMY1.woff2",
+    "sha256": "0cdd387c9590a1a9f9794560022dbb59654a7d86f187aa0c81495ad42d3a7308"
+  },
+  {
+    "path": "static/assets/KaTeX_Caligraphic-Bold-Dq_IR9rO.woff2",
+    "sha256": "de7701e42cf1f4cf0b766c03fb27977207eee2f4fd5d76fa82188406da43ea4c"
+  },
+  {
+    "path": "static/assets/KaTeX_Caligraphic-Regular-Di6jR-x-.woff2",
+    "sha256": "5d53e70ad607c2352162dec9e0923fb54ecdafaccbf604cd8dcf7d00facb989b"
+  },
+  {
+    "path": "static/assets/KaTeX_Fraktur-Bold-CL6g_b3V.woff2",
+    "sha256": "74444efd593c005e3f4573b44524704c0af0a937fe911cca9e94068d0d140d3f"
+  },
+  {
+    "path": "static/assets/KaTeX_Fraktur-Regular-CTYiF6lA.woff2",
+    "sha256": "51814d270d06ff0255dba0799994fa4d8c84d11f09951d47595f4abb1f3602dc"
+  },
+  {
+    "path": "static/assets/KaTeX_Main-Bold-Cx986IdX.woff2",
+    "sha256": "0f60d1b897938ec918c8ce073092411baf9438f6739465693ff18b0f9d20b021"
+  },
+  {
+    "path": "static/assets/KaTeX_Main-BoldItalic-DxDJ3AOS.woff2",
+    "sha256": "99cd42a3c072d918f2f44984a807cf7aa16e13545fd0875fc07c6c65f99e715b"
+  },
+  {
+    "path": "static/assets/KaTeX_Main-Italic-NWA7e6Wa.woff2",
+    "sha256": "97479ca6cce906abc961ecac96faa5f9ca2e61b8e7670d475826bcdee9a7c267"
+  },
+  {
+    "path": "static/assets/KaTeX_Main-Regular-B22Nviop.woff2",
+    "sha256": "c2342cd8b869e01752a9321dc17213fc40d4d04c79688c1d43f2cf316abd7866"
+  },
+  {
+    "path": "static/assets/KaTeX_Math-BoldItalic-CZnvNsCZ.woff2",
+    "sha256": "dc47344dbb6cb5b655c8460d561f4df5f501b90c804ad3c6cec65fe322351ab1"
+  },
+  {
+    "path": "static/assets/KaTeX_Math-Italic-t53AETM-.woff2",
+    "sha256": "7af58c5ec8f132a2ddde9027c6d7814decce4d3b822a11192a42a20e2e973264"
+  },
+  {
+    "path": "static/assets/KaTeX_SansSerif-Bold-D1sUS0GD.woff2",
+    "sha256": "e99ae51144bf1232efcc1bfe5add36262c6866b0faab24fa75740e1b98577a62"
+  },
+  {
+    "path": "static/assets/KaTeX_SansSerif-Italic-C3H0VqGB.woff2",
+    "sha256": "00b26ac825e2095056396e0553b8ac26d3f8ad158c3826e28b4c45b385c4714a"
+  },
+  {
+    "path": "static/assets/KaTeX_SansSerif-Regular-DDBCnlJ7.woff2",
+    "sha256": "68e8c73ef42afd3ccec58bf0fba302cce448938e7fc020a5e31f8a952eee1342"
+  },
+  {
+    "path": "static/assets/KaTeX_Script-Regular-D3wIWfF6.woff2",
+    "sha256": "036d4e95149b69ff9bcc0cd55771efeb25ffa3947293e69acd78d5ac328c684b"
+  },
+  {
+    "path": "static/assets/KaTeX_Size1-Regular-mCD8mA8B.woff2",
+    "sha256": "6b47c40166b6dbe21a5dfca7718413f2147fd2399be1ba605d8ad39cedf25dfe"
+  },
+  {
+    "path": "static/assets/KaTeX_Size2-Regular-Dy4dx90m.woff2",
+    "sha256": "d04c54219f9eaec6d4d4fd42dfb28785975a4794d6b2fc71e566b9cd6db842dd"
+  },
+  {
+    "path": "static/assets/KaTeX_Size4-Regular-Dl5lxZxV.woff2",
+    "sha256": "a4af7d414440a1c1790825cfb700cf9cf43b0f2c4b04f0ebc523011ad9853ec0"
+  },
+  {
+    "path": "static/assets/KaTeX_Typewriter-Regular-CO6r4hn1.woff2",
+    "sha256": "71d517d67827787cfabdf186914cc3358eda539e37931941f2b2fd4a21f68c0b"
+  },
+  {
+    "path": "static/assets/c._id-CsfAmfIg.js",
+    "sha256": "efcf7f714066b5e98ce3b86e0d6488e04a54b6b52d0597e3a793f3db26880e78"
+  },
+  {
+    "path": "static/assets/entry.client-ykuVUMf8.js",
+    "sha256": "8a43938b49345bc8a9b5e281c45647e8ce49f68bcef7a2794cdbd2438ab61fcc"
+  },
+  {
+    "path": "static/assets/highlighted-body-OFNGDK62-C62f2iEu.js",
+    "sha256": "129215a14aeb44f509259a415628ce4644b022eb7285c32fe4d8ddf8e5ddde25"
+  },
+  {
+    "path": "static/assets/home-CsfAmfIg.js",
+    "sha256": "efcf7f714066b5e98ce3b86e0d6488e04a54b6b52d0597e3a793f3db26880e78"
+  },
+  {
+    "path": "static/assets/index-DA3N0fFE.js",
+    "sha256": "e5c2b0909bb03b5fbfc228dfd787f382534c118551cb44e241541943c7faf807"
+  },
+  {
+    "path": "static/assets/input-vNa3prJB.js",
+    "sha256": "1dca312fa800f5f10dcece601daa1bc7ec8081cb629ee3553dbf92a716f4bfcd"
+  },
+  {
+    "path": "static/assets/manifest-e8088cbc.js",
+    "sha256": "31b83f4f1c03d6fc781415513449c52890ae83f93a7d649c2f50b4b19d1cc1c7"
+  },
+  {
+    "path": "static/assets/mermaid-GHXKKRXX-gz2KvSIk.js",
+    "sha256": "d15a2aa17221ff35850e97b11b3f151eb902c244ddc05460fc2de740628df4a3"
+  },
+  {
+    "path": "static/assets/mermaid-GHXKKRXX-oxd61a_B.css",
+    "sha256": "11d78e67ffc479f2d58dc1f86666781801d352b3bfad06ce5bc14c25b3d60aaa"
+  },
+  {
+    "path": "static/assets/root-C6ST7jYf.css",
+    "sha256": "8b30289af1412531a396ce5af8215f57e92dbdfb19aa81c69a2771d3252553a2"
+  },
+  {
+    "path": "static/assets/root-CpB0jk6Z.js",
+    "sha256": "163300445d7106c6a445b799002be333706700ba58abfd0d608a7d5d15d471c3"
+  },
+  {
+    "path": "static/favicon.ico",
+    "sha256": "e43d2e437265e1d88080af30fba12b6855673314f9f29ae7fa3f270342305a2d"
+  },
+  {
+    "path": "static/index.html",
+    "sha256": "84693ce68c16eee4caf886b54666d3cc5685ea3d01fa1475ab10fd67f38d9e64"
+  }
+]

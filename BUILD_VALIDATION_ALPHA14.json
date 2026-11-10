@@ -1,0 +1,33 @@
+{
+  "version_name": "0.1.0-alpha14-ren",
+  "version_code": 14,
+  "application_id": "br.com.projetoia.app.debug",
+  "abis": [
+    "arm64-v8a"
+  ],
+  "size_bytes": 58454641,
+  "sha256": "7ec8dde418f3a65b8b6e0ef056fb63c688a11a30da7f69effba4ffa9a86e8ae7",
+  "assembleGithubDebug": "passed",
+  "signature_verified": true,
+  "signing_certificate_sha256": "8b52983953d2452c8813b7d39e872248c705053c4469e52f884097959b69251f",
+  "same_certificate_as_alpha13": true,
+  "unit_tests": {
+    "app": {
+      "tests": 559,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 3,
+      "passed": 556
+    },
+    "workspace": {
+      "tests": 97,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": 97
+    }
+  },
+  "android_device_test": "not performed",
+  "real_provider_keys": "not used",
+  "apk_file": "ren_0.1.0_alpha14_arm64.apk"
+}
