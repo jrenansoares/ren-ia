@@ -184,7 +184,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
             }
         )
 
-        fun buildHttpRequest(body: JsonObject): Request = transformRequest(
+        suspend fun buildHttpRequest(body: JsonObject): Request = transformRequest(
             providerSetting = providerSetting,
             request = Request.Builder()
                 .url(url)
