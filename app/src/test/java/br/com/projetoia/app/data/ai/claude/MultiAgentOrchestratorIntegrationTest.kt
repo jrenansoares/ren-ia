@@ -83,9 +83,27 @@ class MultiAgentOrchestratorIntegrationTest {
             model = claude,
             providerSetting = openRouter,
             conversationId = Uuid.random(),
+            conversationSystemPrompt = null,
+            workspaceCwd = null,
+            memories = emptyList(),
+            tools = emptyList(),
             programmingMode = true,
             claudeCode = true,
             programmingConsultants = true,
+        )
+        val turnWithoutConsultants = ChatTurnContext(
+            settings = Settings(providers = listOf(openRouter)),
+            assistant = assistant,
+            model = claude,
+            providerSetting = openRouter,
+            conversationId = turn.conversationId,
+            conversationSystemPrompt = null,
+            workspaceCwd = null,
+            memories = emptyList(),
+            tools = emptyList(),
+            programmingMode = true,
+            claudeCode = true,
+            programmingConsultants = false,
         )
 
         assertFalse(shouldOrchestrateTask("oi", turn))
@@ -99,7 +117,7 @@ class MultiAgentOrchestratorIntegrationTest {
         assertFalse(
             shouldOrchestrateTask(
                 "Implemente a validação completa com testes",
-                turn.copy(programmingConsultants = false),
+                turnWithoutConsultants,
             ),
         )
     }
@@ -199,7 +217,10 @@ class MultiAgentOrchestratorIntegrationTest {
             model = claudeOpus,
             providerSetting = openRouter,
             conversationId = Uuid.random(),
+            conversationSystemPrompt = null,
             workspaceCwd = "/workspace/demo-repo",
+            memories = emptyList(),
+            tools = emptyList(),
             programmingMode = true,
             programmingAutoApprove = false,
             claudeCode = true,
