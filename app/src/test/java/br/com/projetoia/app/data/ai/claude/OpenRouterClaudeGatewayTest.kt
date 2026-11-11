@@ -676,6 +676,13 @@ class OpenRouterClaudeGatewayTest {
                 enabled = true,
                 approvedModelIds = listOf(freeModel.id),
                 modelChecks = listOf(checkedFree),
+                costAcknowledgements = listOf(
+                    br.com.projetoia.app.data.ai.ModelCostAcknowledgement(
+                        providerId = nvidia.id,
+                        modelId = freeModel.id,
+                        fingerprint = br.com.projetoia.app.data.ai.modelCheckFingerprint(nvidia, freeModel),
+                    ),
+                ),
             ),
         )
 

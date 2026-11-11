@@ -79,9 +79,24 @@ class WorkspaceToolsTest {
     @Test
     fun writeReadEditAndShellToolsExecuteEndToEndAndReportErrorsCleanly() = runBlocking {
         val workspaceRoot = temp.newFolder("workspaces")
+        val workspaceSlug = "projeto-demo"
         val executedCommands = mutableListOf<Pair<String, String>>()
+        lateinit var manager: WorkspaceManager
         val shellRunner = object : WorkspaceShellRunner {
             override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult {
+                val stdinBytes = context.stdin
+                if (stdinBytes != null && context.command.contains("printf '%s\\0%s\\0%s\\0%s\\0'")) {
+                    val path = Regex("cat > '([^']+)'").find(context.command)?.groupValues?.get(1)
+                        ?: return WorkspaceCommandResult(exitCode = 1, stdout = "", stderr = "Missing write target")
+                    val hostFile = manager.resolveRootfsFile(workspaceSlug, path)
+                    hostFile.parentFile?.mkdirs()
+                    hostFile.writeBytes(stdinBytes)
+                    return WorkspaceCommandResult(
+                        exitCode = 0,
+                        stdout = "f\u0000${stdinBytes.size}\u00001700000000\u0000$path\u0000",
+                        stderr = "",
+                    )
+                }
                 executedCommands += context.cwd to context.command
                 return when {
                     context.command.contains("python3 -c fail") -> WorkspaceCommandResult(
@@ -97,12 +112,11 @@ class WorkspaceToolsTest {
                 }
             }
         }
-        val manager = WorkspaceManager(workspaceRoot, shellRunner = shellRunner)
+        manager = WorkspaceManager(workspaceRoot, shellRunner = shellRunner)
         val workspaceId = "ws-test-1"
-        val workspaceSlug = "projeto-demo"
         manager.ensureWorkspace(workspaceSlug)
         // Mark layout rootfs ready on disk so WorkspaceRepository sees READY consistently if needed
-        File(manager.filesDir(workspaceSlug)).mkdirs()
+        manager.filesDir(workspaceSlug).mkdirs()
 
         val entity = WorkspaceEntity(
             id = workspaceId,
@@ -162,7 +176,7 @@ class WorkspaceToolsTest {
             val editTextPart = editResult.filterIsInstance<UIMessagePart.Text>().single()
             val editJson = Json.parseToJsonElement(editTextPart.text).jsonObject
             assertEquals(1, editJson["replacements"]?.jsonPrimitive?.intOrNull)
-            assertNotNull(editTextPart.metadata["diff"])
+            assertNotNull(editTextPart.metadata?.get("diff"))
 
             val updatedRead = readTool.execute(buildJsonObject { put("path", targetPath) })
                 .filterIsInstance<UIMessagePart.Text>()

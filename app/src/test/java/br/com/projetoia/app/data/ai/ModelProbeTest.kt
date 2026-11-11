@@ -131,13 +131,15 @@ class ModelProbeTest {
                 toolsVerified = true,
             )
         )
-        assertEquals(ModelReadiness.TOOL_CAPABLE, toolVerified.classifyModelReadiness(google, builtInModel))
+        val updatedGoogle = toolVerified.providers.single()
+        val updatedModel = updatedGoogle.models.single()
+        assertEquals(ModelReadiness.TOOL_CAPABLE, toolVerified.classifyModelReadiness(updatedGoogle, updatedModel))
     }
 
     @Test fun interleaveAndCatalogMergePreserveMultiProviderAccessAndCapabilities() {
         val nvidia = ConnectionService.NVIDIA.configure("nvapi-1")
         val groq = ConnectionService.GROQ.configure("gsk-1")
-        val google = ConnectionService.GOOGLE_AI_STUDIO.configure("AIza-1")
+        val google = ConnectionService.GOOGLE.configure("AIza-1")
 
         val nModels = (1..5).map { FreeRoute(nvidia, Model(modelId = "nvidia-$it", chatSupported = true)) }
         val gModels = (1..3).map { FreeRoute(groq, Model(modelId = "groq-$it", chatSupported = true)) }
@@ -151,7 +153,7 @@ class ModelProbeTest {
         val rawClaude = Model(modelId = "anthropic/claude-sonnet-4.6", displayName = "Claude Sonnet 4.6", chatSupported = true)
         val openRouter = ProviderSetting.OpenAI(baseUrl = "https://openrouter.ai/api/v1", apiKey = "sk-or-test")
         val merged = br.com.projetoia.app.data.datastore.Settings(providers = listOf(openRouter))
-            .mergeProviderCatalog(openRouter, listOf(rawClaude), checkedAt = 50L)
+            .mergeProviderCatalog(openRouter, listOf(rawClaude), now = 50L)
         val enrichedClaude = merged.providers.single().models.single()
         assertTrue(ModelAbility.TOOL in enrichedClaude.abilities)
     }
