@@ -75,6 +75,7 @@ class ChatTurnContext(
     val programmingAutoApprove: Boolean = false,
     val claudeCode: Boolean = false,
     val programmingConsultants: Boolean = false,
+    val freshClaudeSession: Boolean = false,
 )
 
 /** 把会话变成发给模型的请求：系统提示词、上下文裁剪、输入输出转换都在这里 */
@@ -105,7 +106,11 @@ class ChatRequestFactory(
     )
 
     /** 解析本轮的助手、模型、记忆和工具；MCP 服务名不合法时抛出 InvalidMcpServerNamesException */
-    suspend fun createContext(settings: Settings, conversation: Conversation): ChatTurnContext {
+    suspend fun createContext(
+        settings: Settings,
+        conversation: Conversation,
+        freshClaudeSession: Boolean = false,
+    ): ChatTurnContext {
         // 模型、思考级别、搜索、工具等以会话上固定的配置为准
         val programming = conversation.config?.programmingMode == true
         val claudeCode = conversation.programmingClaudeCodeEnabled
@@ -131,7 +136,11 @@ class ChatRequestFactory(
         }
         val needsTools =
             assistant.workspaceId != null || assistant.mcpServers.isNotEmpty() || assistant.localTools.isNotEmpty()
-        val automatic = if (settings.freeRouter.enabled || programming) {
+        val explicitOpenRouterClaude = claudeCode &&
+            br.com.projetoia.app.data.ai.claude.findOpenRouterClaudeOption(settings, selectedModel) != null
+        val automatic = if (explicitOpenRouterClaude) {
+            selectedModel
+        } else if (settings.freeRouter.enabled || programming) {
             (if (programming) settings.programmingRoutes(task, selectedModel?.id) else settings.automaticRoutes(task, selectedModel?.id)).firstOrNull {
                 (!needsVision || me.rerere.ai.provider.Modality.IMAGE in it.model.inputModalities) &&
                     (!needsTools || me.rerere.ai.provider.ModelAbility.TOOL in it.model.abilities || it.toolsVerified)
@@ -168,6 +177,7 @@ class ChatRequestFactory(
             programmingAutoApprove = autoApprove,
             claudeCode = claudeCode,
             programmingConsultants = conversation.programmingConsultantsEnabled,
+            freshClaudeSession = freshClaudeSession,
         )
     }
 

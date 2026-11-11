@@ -174,6 +174,8 @@ fun ProgrammingModePanel(
     val project = workspaces.firstOrNull { it.id == state.selectedId }
     val approvedCount = settings.programmingRoutes().size
     val availableCount = settings.providers.sumOf { provider -> provider.models.count { isProgrammingRouteAllowed(provider, it) } }
+    val openRouterClaudeCount = br.com.projetoia.app.data.ai.claude.openRouterClaudeOptions(settings).size
+    val canUseOpenRouterClaude = openRouterClaudeCount > 0 && sharedLinux.environment?.claudeUsable == true
 
     LaunchedEffect(show) { if (show) vm.refreshSharedLinux() }
     LaunchedEffect(show, sharedLinux.ready, sharedLinux.busy, state.selectedId, project?.shellStatus) {
@@ -291,9 +293,24 @@ fun ProgrammingModePanel(
 
             CardGroup {
                 item(
-                    headlineContent = { Text(stringResource(R.string.programming_free_count, approvedCount)) },
+                    headlineContent = {
+                        Text(
+                            if (approvedCount == 0 && openRouterClaudeCount > 0) {
+                                stringResource(R.string.programming_claude_openrouter_count, openRouterClaudeCount)
+                            } else {
+                                stringResource(R.string.programming_free_count, approvedCount)
+                            }
+                        )
+                    },
                     supportingContent = { Text(stringResource(R.string.programming_route_policy)) },
                 )
+                if (approvedCount > 0 && openRouterClaudeCount > 0) {
+                    item(
+                        headlineContent = {
+                            Text(stringResource(R.string.programming_claude_openrouter_count, openRouterClaudeCount))
+                        },
+                    )
+                }
                 formItem {
                     if (availableCount > 0) TextButton(
                         enabled = !state.busy && !executing,
@@ -305,7 +322,9 @@ fun ProgrammingModePanel(
                         onClick = { show = false; nav.navigate(Screen.FreeRouter) }, shapes = androidx.compose.material3.ButtonDefaults.shapes(shape = androidx.compose.ui.graphics.RectangleShape, pressedShape = androidx.compose.ui.graphics.RectangleShape),
                         elevation = null,
                     ) { Text(stringResource(R.string.projeto_router)) }
-                    if (availableCount == 0) Text(stringResource(R.string.programming_route_required), style = MaterialTheme.typography.bodySmall)
+                    if (availableCount == 0 && !canUseOpenRouterClaude) {
+                        Text(stringResource(R.string.programming_route_required), style = MaterialTheme.typography.bodySmall)
+                    }
                     TextButton(onClick = { show = false; nav.navigate(Screen.Connections) }, shapes = androidx.compose.material3.ButtonDefaults.shapes(shape = androidx.compose.ui.graphics.RectangleShape, pressedShape = androidx.compose.ui.graphics.RectangleShape), elevation = null) { Text(stringResource(R.string.projeto_connections)) }
                 }
             }
@@ -336,7 +355,7 @@ fun ProgrammingModePanel(
             Text(stringResource(if (autoApprove) R.string.programming_consent_auto else R.string.programming_consent), style = MaterialTheme.typography.bodySmall)
             Button(
                 onClick = { vm.activate { show = false } },
-                enabled = project != null && state.ready && approvedCount > 0 && !state.busy && !executing,
+                enabled = project != null && state.ready && (approvedCount > 0 || canUseOpenRouterClaude) && !state.busy && !executing,
                 modifier = Modifier.fillMaxWidth(), shapes = androidx.compose.material3.ButtonDefaults.shapes(shape = androidx.compose.ui.graphics.RectangleShape, pressedShape = androidx.compose.ui.graphics.RectangleShape),
                 elevation = null,
             ) { Text(stringResource(R.string.programming_start)) }

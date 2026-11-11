@@ -3,6 +3,7 @@ package br.com.projetoia.app.data.ai.claude
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.embeddedServer
@@ -38,6 +39,8 @@ import java.security.SecureRandom
 /** One ephemeral, authenticated loopback endpoint per turn. No LAN listener or provider keys. */
 internal class ClaudeLocalGateway(
     private val owner: CoroutineScope,
+    private val availableModels: List<String> = emptyList(),
+    private val forwardRaw: (suspend (ApplicationCall, String) -> Unit)? = null,
     private val complete: suspend (BridgeRequest) -> JsonObject,
 ) {
     private val requests = CoroutineScope(owner.coroutineContext + SupervisorJob(owner.coroutineContext[Job]))
@@ -64,15 +67,18 @@ internal class ClaudeLocalGateway(
                     )
                     return@get
                 }
+                val modelIds = availableModels.ifEmpty {
+                    listOf(
+                        "projeto-free",
+                        "claude-3-5-sonnet-20241022",
+                        "claude-3-7-sonnet-20250219",
+                        "claude-3-5-haiku-20241022",
+                        "claude-3-opus-20240229",
+                    )
+                }.distinct()
                 val models = buildJsonObject {
                     put("data", buildJsonArray {
-                        listOf(
-                            "projeto-free",
-                            "claude-3-5-sonnet-20241022",
-                            "claude-3-7-sonnet-20250219",
-                            "claude-3-5-haiku-20241022",
-                            "claude-3-opus-20240229",
-                        ).forEach { id ->
+                        modelIds.forEach { id ->
                             add(buildJsonObject {
                                 put("id", id)
                                 put("type", "model")
@@ -123,6 +129,42 @@ internal class ClaudeLocalGateway(
             return
         }
         val rawBody = call.receiveText()
+        if (forwardRaw != null) {
+            val validJson = try {
+                Json.parseToJsonElement(rawBody).jsonObject
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+            if (validJson == null) {
+                call.respondText(
+                    error("invalid_request_error", "Invalid JSON request"),
+                    ContentType.Application.Json,
+                    HttpStatusCode.BadRequest
+                )
+                return
+            }
+            call.response.headers.append(HttpHeaders.CacheControl, "no-store")
+            if (countOnly) {
+                respondEstimatedTokens(rawBody)
+                return
+            }
+            try {
+                requests.async { forwardRaw(call, rawBody) }.await()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                runCatching {
+                    call.respondText(
+                        error("api_error", "Upstream forwarding failed"),
+                        ContentType.Application.Json,
+                        HttpStatusCode.BadGateway
+                    )
+                }
+            }
+            return
+        }
         val request = try {
             val body = Json.parseToJsonElement(rawBody).jsonObject
             AnthropicBridgeCodec.decode(body)
@@ -146,14 +188,7 @@ internal class ClaudeLocalGateway(
 
         call.response.headers.append(HttpHeaders.CacheControl, "no-store")
         if (countOnly) {
-            // There is no shared tokenizer across free providers. Mark the estimate explicitly;
-            // the chat's usage display is populated only from actual upstream usage.
-            call.response.headers.append("x-projeto-token-count-estimated", "true")
-            val estimate = (rawBody.toByteArray(Charsets.UTF_8).size + 1).coerceAtLeast(1)
-            call.respondText(
-                buildJsonObject { put("input_tokens", estimate) }.toString(),
-                ContentType.Application.Json
-            )
+            respondEstimatedTokens(rawBody)
             return
         }
 
@@ -174,6 +209,17 @@ internal class ClaudeLocalGateway(
                 HttpStatusCode.BadGateway
             )
         }
+    }
+
+    private suspend fun io.ktor.server.routing.RoutingContext.respondEstimatedTokens(rawBody: String) {
+        // There is no shared tokenizer across free providers. Mark the estimate explicitly;
+        // the chat's usage display is populated only from actual upstream usage.
+        call.response.headers.append("x-projeto-token-count-estimated", "true")
+        val estimate = (rawBody.toByteArray(Charsets.UTF_8).size + 1).coerceAtLeast(1)
+        call.respondText(
+            buildJsonObject { put("input_tokens", estimate) }.toString(),
+            ContentType.Application.Json
+        )
     }
 
     private fun error(type: String, message: String) = buildJsonObject {

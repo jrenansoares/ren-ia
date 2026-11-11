@@ -62,7 +62,7 @@ val appModule = module {
     }
 
     single {
-        ClaudeGatewayManager(get(), get(), get(), get())
+        ClaudeGatewayManager(get(), get(), get(), get(), get())
     }
 
     single {
@@ -134,7 +134,7 @@ val appModule = module {
             scope = get<AppScope>(),
         )
     }
-    single { ClaudeChatRunner(get(), get(), get(), get(), get()) }
+    single { ClaudeChatRunner(get(), get(), get(), get(), get(), get()) }
     single {
         ChatService(
             context = get(),

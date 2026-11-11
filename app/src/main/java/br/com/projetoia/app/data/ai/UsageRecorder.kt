@@ -50,14 +50,46 @@ class UsageRecorder(
     fun <T : ProviderSetting> wrap(provider: Provider<T>, tag: UsageTag): Provider<T> =
         UsageRecordingProvider(provider, tag)
 
+    fun recordExternal(
+        tag: UsageTag,
+        providerSetting: ProviderSetting,
+        modelId: Uuid,
+        modelName: String,
+        usage: TokenUsage,
+    ) {
+        insertRecord(
+            tag = tag,
+            providerId = providerSetting.id.toString(),
+            modelId = modelId.toString(),
+            modelName = modelName,
+            usage = usage,
+        )
+    }
+
     private fun record(tag: UsageTag, providerSetting: ProviderSetting, params: TextGenerationParams, usage: TokenUsage) {
+        insertRecord(
+            tag = tag,
+            providerId = providerSetting.id.toString(),
+            modelId = params.model.id.toString(),
+            modelName = params.model.modelId,
+            usage = usage,
+        )
+    }
+
+    private fun insertRecord(
+        tag: UsageTag,
+        providerId: String,
+        modelId: String,
+        modelName: String,
+        usage: TokenUsage,
+    ) {
         if (usage.promptTokens <= 0 && usage.completionTokens <= 0) return
         val record = UsageRecordEntity(
             createdAt = System.currentTimeMillis(),
             source = tag.source.name,
-            providerId = providerSetting.id.toString(),
-            modelId = params.model.id.toString(),
-            modelName = params.model.modelId,
+            providerId = providerId,
+            modelId = modelId,
+            modelName = modelName,
             assistantId = tag.assistantId?.toString(),
             conversationId = tag.conversationId?.toString(),
             promptTokens = usage.promptTokens,

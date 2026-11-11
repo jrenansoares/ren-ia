@@ -404,8 +404,8 @@ private fun ChatListNormal(
                     ) {
                         ChatMessage(
                             node = node,
-                            model = node.currentMessage.modelId?.let(modelById::get)
-                                ?: node.currentMessage.snapshotModel(),
+                            model = node.currentMessage.snapshotModel()
+                                ?: node.currentMessage.modelId?.let(modelById::get),
                             assistant = assistant,
                             loading = loading && index == lastMessageIndex,
                             onRegenerate = {

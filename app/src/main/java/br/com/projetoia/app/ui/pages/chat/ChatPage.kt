@@ -341,10 +341,18 @@ private fun ChatPageContent(
         }.orEmpty()
     }
     val automaticModelSelection = setting.freeRouter.enabled || conversation.config?.programmingMode == true
-    val routeModelIds = remember(setting, conversation.config?.programmingMode, currentChatModel?.id) {
+    val claudeCodeEnabled = conversation.programmingClaudeCodeEnabled
+    val routeModelIds = remember(setting, conversation.config?.programmingMode, claudeCodeEnabled, currentChatModel?.id) {
         if (!automaticModelSelection) null
         else if (conversation.config?.programmingMode == true) {
-            setting.programmingRoutes(preferredModelId = currentChatModel?.id).mapTo(HashSet()) { it.model.id }
+            setting.programmingRoutes(preferredModelId = currentChatModel?.id)
+                .mapTo(HashSet()) { it.model.id }
+                .apply {
+                    if (claudeCodeEnabled) {
+                        br.com.projetoia.app.data.ai.claude.openRouterClaudeOptions(setting)
+                            .forEach { add(it.model.id) }
+                    }
+                }
         } else {
             setting.automaticRoutes(task = "", preferredModelId = currentChatModel?.id).mapTo(HashSet()) { it.model.id }
         }

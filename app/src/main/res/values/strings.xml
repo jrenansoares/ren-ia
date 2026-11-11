@@ -1861,6 +1861,7 @@
   <string name="programming_route_policy">Programming uses tested models with tool support that you authorized for automatic routing. Fallback follows the same provider order as regular chat. Providers may charge after free quotas or credits run out.</string>
   <string name="programming_authorize">Choose models</string>
   <string name="programming_free_count">%1$d AI models authorized</string>
+  <string name="programming_claude_openrouter_count">Claude via OpenRouter ready (%1$d models)</string>
   <string name="programming_consent">The conversation and file content used in the task are sent to the selected AI. File changes and commands require approval.</string>
   <string name="programming_files">Files</string>
   <string name="programming_terminal">Terminal</string>

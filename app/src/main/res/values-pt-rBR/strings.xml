@@ -126,6 +126,7 @@
   <string name="programming_route_policy">Programação usa modelos testados com suporte a ferramentas que você autorizou para o roteamento automático. A contingência segue a mesma ordem do chat normal. Provedores podem cobrar após o fim das cotas ou créditos gratuitos.</string>
   <string name="programming_authorize">Escolher modelos</string>
   <string name="programming_free_count">%1$d modelos de IA autorizados</string>
+  <string name="programming_claude_openrouter_count">Claude via OpenRouter pronto (%1$d modelos)</string>
   <string name="programming_consent">A conversa e o conteúdo dos arquivos usados na tarefa são enviados à IA selecionada. Alterações de arquivos e comandos exigem aprovação.</string>
   <string name="programming_files">Arquivos</string>
   <string name="programming_terminal">Terminal</string>
