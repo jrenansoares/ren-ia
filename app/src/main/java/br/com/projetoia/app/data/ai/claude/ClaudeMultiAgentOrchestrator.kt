@@ -521,10 +521,6 @@ internal class ClaudeMultiAgentOrchestrator(
 
     companion object {
         const val MAX_PARALLEL_CONSULTANTS = 3
-        private const val MAX_SCAN_DEPTH = 2
-        private const val MAX_LISTED_FILES = 120
-        private const val MAX_FILE_EXCERPT_CHARS = 4_000
-        private const val MAX_TOTAL_EXCERPT_CHARS = 18_000
 
         fun buildExecutorPlanDirective(
             plan: StructuredPlan,
@@ -1067,6 +1063,11 @@ private fun computeFinalStatus(
     }
     return MultiAgentFinalStatus.EXECUTED
 }
+
+private const val MAX_SCAN_DEPTH = 2
+private const val MAX_LISTED_FILES = 120
+private const val MAX_FILE_EXCERPT_CHARS = 4_000
+private const val MAX_TOTAL_EXCERPT_CHARS = 18_000
 
 private val IGNORED_DIR_NAMES = setOf(
     ".git", ".gradle", "build", "node_modules", "__pycache__", ".venv", "venv",
