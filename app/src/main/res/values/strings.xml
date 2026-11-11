@@ -2024,8 +2024,8 @@
   <string name="projeto_model_checks_tool_failure_type">Tool test · type: %1$s</string>
   <string name="projeto_model_checks_tools_pending">Claude Code will use it only after tool support is verified.</string>
   <string name="programming_activate_claude_first">Enable Claude Code in this conversation first.</string>
-  <string name="programming_consultants">Consult text models</string>
-  <string name="programming_consultants_desc">Up to two approved and tested models can suggest a plan before execution. They receive only the written task, not files. The consultation uses quota or credits according to the account.</string>
+  <string name="programming_consultants">Multi-agent planning &amp; validation</string>
+  <string name="programming_consultants_desc">Gemini, GPT-OSS, and other approved read-only models inspect sanitized repository context in parallel to draft a plan and validate test results, while Claude Code executes edits and commands using Claude on OpenRouter.</string>
   <string name="projeto_model_check_blocked">Skipped after key rejection</string>
   <string name="projeto_model_checks_open">Test configured models</string>
   <string name="projeto_providers_added_title">Configured providers</string>

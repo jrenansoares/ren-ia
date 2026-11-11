@@ -79,6 +79,7 @@ import me.rerere.hugeicons.stroke.MessageAdd01
 import br.com.projetoia.app.R
 import br.com.projetoia.app.Screen
 import br.com.projetoia.app.data.ai.automaticRoutes
+import br.com.projetoia.app.data.ai.programmingClaudeCodeEnabled
 import br.com.projetoia.app.data.ai.programmingRoutes
 import br.com.projetoia.app.data.ai.providerFallbackPriority
 import br.com.projetoia.app.ui.pages.projeto.ProgrammingModePanel

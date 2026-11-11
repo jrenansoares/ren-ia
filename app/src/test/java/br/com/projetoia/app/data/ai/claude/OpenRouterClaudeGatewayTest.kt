@@ -260,6 +260,70 @@ class OpenRouterClaudeGatewayTest {
     }
 
     @Test
+    fun stage3EnablesAllOpenRouterClaudeFamiliesAndPromotesClaudeForMultiAgent() {
+        val sonnet = Model(modelId = "anthropic/claude-sonnet-4.6", displayName = "Claude Sonnet 4.6")
+        val opus = Model(modelId = "anthropic/claude-opus-4.6", displayName = "Claude Opus 4.6")
+        val haiku = Model(modelId = "anthropic/claude-haiku-4.5", displayName = "Claude Haiku 4.5")
+        val fable = Model(modelId = "anthropic/claude-fable-5.2", displayName = "Claude Fable 5.2")
+        val batch = Model(modelId = "anthropic/claude-sonnet-4.6:batch", displayName = "Batch")
+        val gemini = Model(modelId = "gemini-2.5-flash", displayName = "Gemini 2.5 Flash")
+
+        val openRouter = ProviderSetting.OpenAI(
+            name = "OpenRouter",
+            baseUrl = "https://openrouter.ai/api/v1",
+            apiKey = "sk-or-test-key",
+            models = listOf(sonnet, opus, haiku, fable, batch),
+        )
+        val google = ProviderSetting.Google(
+            name = "Google",
+            apiKey = "AIza-test-key",
+            models = listOf(gemini),
+        )
+        val settings = Settings(providers = listOf(openRouter, google))
+
+        val options = openRouterClaudeOptions(settings)
+        assertEquals(
+            listOf(
+                "anthropic/claude-sonnet-4.6",
+                "anthropic/claude-opus-4.6",
+                "anthropic/claude-haiku-4.5",
+                "anthropic/claude-fable-5.2",
+            ),
+            options.map { it.model.modelId },
+        )
+
+        val opusTarget = resolveClaudeExecutionTarget(settings, opus) as ClaudeExecutionTarget.OpenRouterClaude
+        assertEquals("anthropic/claude-opus-4.6", opusTarget.option.model.modelId)
+        assertEquals("anthropic/claude-sonnet-4.6", opusTarget.familyOverrides[ClaudeModelFamily.SONNET])
+        assertEquals("anthropic/claude-haiku-4.5", opusTarget.familyOverrides[ClaudeModelFamily.HAIKU])
+
+        val haikuTarget = resolveClaudeExecutionTarget(settings, haiku) as ClaudeExecutionTarget.OpenRouterClaude
+        assertEquals("anthropic/claude-haiku-4.5", haikuTarget.option.model.modelId)
+
+        val fableTarget = resolveClaudeExecutionTarget(settings, fable) as ClaudeExecutionTarget.OpenRouterClaude
+        assertEquals("anthropic/claude-fable-5.2", fableTarget.option.model.modelId)
+
+        // Direct non-consultant Gemini selection stays on FreeRouterFallback; multi-agent mode reserves Claude for execution.
+        assertTrue(
+            resolveClaudeExecutionTarget(
+                settings,
+                gemini,
+                preferOpenRouterClaudeWhenConsultantsActive = false,
+            ) is ClaudeExecutionTarget.FreeRouterFallback,
+        )
+        val promotedTarget = resolveClaudeExecutionTarget(
+            settings,
+            gemini,
+            preferOpenRouterClaudeWhenConsultantsActive = true,
+        )
+        assertTrue(promotedTarget is ClaudeExecutionTarget.OpenRouterClaude)
+        assertEquals(
+            "anthropic/claude-sonnet-4.6",
+            (promotedTarget as ClaudeExecutionTarget.OpenRouterClaude).option.model.modelId,
+        )
+    }
+
+    @Test
     fun errorResponseRedactsApiKeyOnRateLimit() = runBlocking {
         val secretKey = "sk-or-super-secret-value"
         val upstreamServer = embeddedServer(CIO, port = 0, host = "127.0.0.1") {

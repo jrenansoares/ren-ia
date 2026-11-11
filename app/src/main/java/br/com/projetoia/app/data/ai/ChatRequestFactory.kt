@@ -138,8 +138,15 @@ class ChatRequestFactory(
             assistant.workspaceId != null || assistant.mcpServers.isNotEmpty() || assistant.localTools.isNotEmpty()
         val explicitOpenRouterClaude = claudeCode &&
             br.com.projetoia.app.data.ai.claude.findOpenRouterClaudeOption(settings, selectedModel) != null
+        val consultantClaudeOption = if (claudeCode && conversation.programmingConsultantsEnabled && !explicitOpenRouterClaude) {
+            br.com.projetoia.app.data.ai.claude.preferredDefaultOpenRouterClaudeOption(settings)
+        } else {
+            null
+        }
         val automatic = if (explicitOpenRouterClaude) {
             selectedModel
+        } else if (consultantClaudeOption != null) {
+            consultantClaudeOption.model
         } else if (settings.freeRouter.enabled || programming) {
             (if (programming) settings.programmingRoutes(task, selectedModel?.id) else settings.automaticRoutes(task, selectedModel?.id)).firstOrNull {
                 (!needsVision || me.rerere.ai.provider.Modality.IMAGE in it.model.inputModalities) &&

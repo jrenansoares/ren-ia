@@ -16,11 +16,14 @@ internal enum class ClaudeModelFamily {
 }
 
 /**
- * Estágio 1 habilita apenas modelos Sonnet no roteamento explícito Claude via OpenRouter;
- * famílias Opus, Haiku e Fable serão liberadas após validação de streaming, ferramentas e sessão.
+ * Famílias Claude habilitadas no roteamento explícito via OpenRouter:
+ * Sonnet, Opus, Haiku e Fable (Estágio 3 após validação do gateway, ferramentas e sessão).
  */
 internal val STAGE_ENABLED_CLAUDE_FAMILIES: Set<ClaudeModelFamily> = setOf(
     ClaudeModelFamily.SONNET,
+    ClaudeModelFamily.OPUS,
+    ClaudeModelFamily.HAIKU,
+    ClaudeModelFamily.FABLE,
 )
 
 internal data class OpenRouterClaudeOption(
@@ -134,6 +137,7 @@ internal fun findOpenRouterClaudeOption(
 internal fun resolveClaudeExecutionTarget(
     settings: Settings,
     preferredModel: Model?,
+    preferOpenRouterClaudeWhenConsultantsActive: Boolean = false,
     enabledFamilies: Set<ClaudeModelFamily> = STAGE_ENABLED_CLAUDE_FAMILIES,
 ): ClaudeExecutionTarget {
     val options = openRouterClaudeOptions(settings, enabledFamilies)
@@ -145,6 +149,15 @@ internal fun resolveClaudeExecutionTarget(
             option = matched,
             familyOverrides = buildFamilyOverrides(matched, options),
         )
+    }
+    if (preferOpenRouterClaudeWhenConsultantsActive) {
+        val defaultClaude = options.firstOrNull { it.family == ClaudeModelFamily.SONNET } ?: options.firstOrNull()
+        if (defaultClaude != null) {
+            return ClaudeExecutionTarget.OpenRouterClaude(
+                option = defaultClaude,
+                familyOverrides = buildFamilyOverrides(defaultClaude, options),
+            )
+        }
     }
     return ClaudeExecutionTarget.FreeRouterFallback(preferredModelId = preferredModel?.id)
 }

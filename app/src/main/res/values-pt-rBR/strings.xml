@@ -291,8 +291,8 @@
   <string name="projeto_model_checks_tool_failure_type">Teste de ferramenta · tipo: %1$s</string>
   <string name="projeto_model_checks_tools_pending">Só será usado no Claude Code após confirmar ferramentas.</string>
   <string name="programming_activate_claude_first">Ative o Claude Code nesta conversa primeiro.</string>
-  <string name="programming_consultants">Consultar modelos de texto</string>
-  <string name="programming_consultants_desc">Até dois modelos aprovados e testados podem sugerir um plano antes da execução. Recebem somente a tarefa escrita, sem arquivos. A consulta usa cota ou créditos conforme a conta.</string>
+  <string name="programming_consultants">Planejamento e validação multiagente</string>
+  <string name="programming_consultants_desc">Modelos Gemini, GPT-OSS e outras IAs compatíveis analisam contexto sanitizado do repositório em paralelo para planejar e validar testes, enquanto o Claude Code executa alterações e comandos usando um modelo Claude no OpenRouter.</string>
   <string name="projeto_model_check_blocked">Ignorado após rejeição da chave</string>
   <string name="projeto_model_check_blocked_quota">Ignorado após limite de cota</string>
   <string name="projeto_model_checks_open">Testar modelos cadastrados</string>
