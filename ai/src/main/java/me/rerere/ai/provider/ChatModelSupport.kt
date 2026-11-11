@@ -34,6 +34,7 @@ fun Model.supportsConversation(): Boolean {
     // Legacy installations have no catalog flag. Recognize the built-in free
     // router and the SDK's known conversational models; unknown IDs stay hidden.
     return name in setOf("openrouter/free", "llama-3.3-70b-versatile", "llama-3.1-8b-instant") ||
+        (name.startsWith("anthropic/claude") && !name.contains(":batch")) ||
         ModelRegistry.MODEL_ABILITIES.getData(modelId).isNotEmpty()
 }
 

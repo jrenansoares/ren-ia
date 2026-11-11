@@ -1,6 +1,7 @@
 package br.com.projetoia.app.ui.pages.projeto
 
 import android.os.SystemClock
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -160,6 +161,8 @@ fun ProgrammingModePanel(
     settings: Settings,
     executing: Boolean,
     openInitially: Boolean = false,
+    currentChatModel: me.rerere.ai.provider.Model? = null,
+    onSelectChatModel: ((me.rerere.ai.provider.Model) -> Unit)? = null,
 ) {
     val vm: ProgrammingVM = koinViewModel(parameters = { parametersOf(conversation.id.toString()) })
     val state by vm.state.collectAsStateWithLifecycle()
@@ -174,7 +177,14 @@ fun ProgrammingModePanel(
     val project = workspaces.firstOrNull { it.id == state.selectedId }
     val approvedCount = settings.programmingRoutes().size
     val availableCount = settings.providers.sumOf { provider -> provider.models.count { isProgrammingRouteAllowed(provider, it) } }
-    val openRouterClaudeCount = br.com.projetoia.app.data.ai.claude.openRouterClaudeOptions(settings).size
+    val openRouterClaudeOptions = br.com.projetoia.app.data.ai.claude.openRouterClaudeOptions(settings)
+    val openRouterClaudeCount = openRouterClaudeOptions.size
+    val hasOpenRouterKeyWithoutClaude = openRouterClaudeCount == 0 && settings.providers.any { provider ->
+        provider.enabled &&
+            br.com.projetoia.app.data.ai.claude.isOpenRouterProvider(provider) &&
+            provider is me.rerere.ai.provider.ProviderSetting.OpenAI &&
+            provider.apiKey.isNotBlank()
+    }
     val canUseOpenRouterClaude = openRouterClaudeCount > 0 && sharedLinux.environment?.claudeUsable == true
 
     LaunchedEffect(show) { if (show) vm.refreshSharedLinux() }
@@ -310,6 +320,43 @@ fun ProgrammingModePanel(
                             Text(stringResource(R.string.programming_claude_openrouter_count, openRouterClaudeCount))
                         },
                     )
+                }
+                if (openRouterClaudeCount > 0 && onSelectChatModel != null) {
+                    formItem {
+                        Text(
+                            text = stringResource(R.string.programming_claude_model_title),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            openRouterClaudeOptions.forEach { option ->
+                                val selected = currentChatModel?.id == option.model.id
+                                FilterChip(
+                                    selected = selected,
+                                    onClick = { onSelectChatModel(option.model) },
+                                    enabled = !state.busy && !executing,
+                                    label = {
+                                        Text(
+                                            text = option.model.displayName.ifBlank { option.model.modelId },
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    },
+                                )
+                            }
+                        }
+                    }
+                } else if (hasOpenRouterKeyWithoutClaude) {
+                    formItem {
+                        Text(
+                            text = stringResource(R.string.programming_claude_model_missing_catalog),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 formItem {
                     if (availableCount > 0) TextButton(

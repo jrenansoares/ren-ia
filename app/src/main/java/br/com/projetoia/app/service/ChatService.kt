@@ -750,7 +750,7 @@ class ChatService(
 
     // 模型不支持工具调用时，搜索和 MCP 工具都不会生效，提醒一下
     private fun warnIfToolsUnavailable(turn: ChatTurnContext, conversationId: Uuid) {
-        if (ModelAbility.TOOL in turn.model.abilities) return
+        if (turn.claudeCode || ModelAbility.TOOL in turn.model.abilities) return
         if (shouldUseExternalWebSearch(turn.assistant, turn.model) ||
             mcpManager.getAllAvailableTools(turn.assistant).isNotEmpty()
         ) {
@@ -928,6 +928,7 @@ class ChatService(
 
     suspend fun setProgrammingClaudeCode(conversationId: Uuid, enabled: Boolean) {
         withLoadedSession(conversationId) { session ->
+            val settings = settingsStore.awaitLoaded()
             session.updateMetadata(
                 transform = { latest ->
                     check(
@@ -937,7 +938,29 @@ class ChatService(
                     check(
                         config.programmingMode && config.workspaceId != null
                     ) { context.getString(R.string.programming_activate_first) }
-                    latest.copy(config = config.copy(programmingClaudeCode = enabled))
+                    val promotedModelId = if (enabled) {
+                        val current = settings.getChatModelOf(latest)
+                        val alreadyClaude = br.com.projetoia.app.data.ai.claude.findOpenRouterClaudeOption(
+                            settings,
+                            current,
+                        ) != null
+                        if (alreadyClaude) {
+                            config.chatModelId
+                        } else {
+                            br.com.projetoia.app.data.ai.claude.preferredDefaultOpenRouterClaudeOption(settings)
+                                ?.model
+                                ?.id
+                                ?: config.chatModelId
+                        }
+                    } else {
+                        config.chatModelId
+                    }
+                    latest.copy(
+                        config = config.copy(
+                            programmingClaudeCode = enabled,
+                            chatModelId = promotedModelId,
+                        )
+                    )
                 },
                 persist = conversationRepo::updateConversationConfig,
             )

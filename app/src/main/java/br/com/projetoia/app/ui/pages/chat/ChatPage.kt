@@ -349,10 +349,8 @@ private fun ChatPageContent(
             setting.programmingRoutes(preferredModelId = currentChatModel?.id)
                 .mapTo(HashSet()) { it.model.id }
                 .apply {
-                    if (claudeCodeEnabled) {
-                        br.com.projetoia.app.data.ai.claude.openRouterClaudeOptions(setting)
-                            .forEach { add(it.model.id) }
-                    }
+                    br.com.projetoia.app.data.ai.claude.openRouterClaudeOptions(setting)
+                        .forEach { add(it.model.id) }
                 }
         } else {
             setting.automaticRoutes(task = "", preferredModelId = currentChatModel?.id).mapTo(HashSet()) { it.model.id }
@@ -402,8 +400,10 @@ private fun ChatPageContent(
                     ProgrammingModePanel(
                         conversation = conversation,
                         settings = setting,
-                            executing = loadingJob != null || conversation.isAwaitingToolApproval || voiceState.isActive,
+                        executing = loadingJob != null || conversation.isAwaitingToolApproval || voiceState.isActive,
                         openInitially = programmingSetup,
+                        currentChatModel = currentChatModel,
+                        onSelectChatModel = vm::setChatModel,
                     )
                     ChatInput(
                         onStartVoiceMode = onStartVoiceMode.takeIf { conversation.config?.programmingMode != true },
@@ -741,11 +741,19 @@ private fun TopBar(
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (chatModel != null && provider != null) {
+                        val isOpenRouterClaudeActive = conversation.programmingClaudeCodeEnabled &&
+                            br.com.projetoia.app.data.ai.claude.findOpenRouterClaudeOption(settings, chatModel) != null
+                        val assistantLabel = assistant.name.ifBlank {
+                            stringResource(R.string.assistant_page_default_assistant)
+                        }
                         Text(
-                            text = if (settings.freeRouter.enabled || conversation.config?.programmingMode == true) {
-                                "${assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) }} / ${stringResource(R.string.projeto_router_active)}"
-                            } else {
-                                "${assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) }} / ${chatModel.displayName} (${provider.name})"
+                            text = when {
+                                isOpenRouterClaudeActive ->
+                                    "Claude Code · ${chatModel.displayName} (${provider.name})"
+                                settings.freeRouter.enabled || conversation.config?.programmingMode == true ->
+                                    "$assistantLabel / ${stringResource(R.string.projeto_router_active)}"
+                                else ->
+                                    "$assistantLabel / ${chatModel.displayName} (${provider.name})"
                             },
                             overflow = TextOverflow.Ellipsis,
                             maxLines = 1,

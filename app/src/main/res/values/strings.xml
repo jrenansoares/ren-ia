@@ -2024,6 +2024,8 @@
   <string name="projeto_model_checks_tool_failure_type">Tool test · type: %1$s</string>
   <string name="projeto_model_checks_tools_pending">Claude Code will use it only after tool support is verified.</string>
   <string name="programming_activate_claude_first">Enable Claude Code in this conversation first.</string>
+  <string name="programming_claude_model_title">Executor model (Claude on OpenRouter)</string>
+  <string name="programming_claude_model_missing_catalog">OpenRouter key detected, but no Claude model is listed yet. Refresh models in Connections to enable Sonnet, Opus, or Haiku.</string>
   <string name="programming_consultants">Multi-agent planning &amp; validation</string>
   <string name="programming_consultants_desc">Gemini, GPT-OSS, and other approved read-only models inspect sanitized repository context in parallel to draft a plan and validate test results, while Claude Code executes edits and commands using Claude on OpenRouter.</string>
   <string name="projeto_model_check_blocked">Skipped after key rejection</string>

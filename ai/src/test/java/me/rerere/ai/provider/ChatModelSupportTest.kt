@@ -7,9 +7,10 @@ import org.junit.Test
 
 class ChatModelSupportTest {
     @Test fun legacyConversationModelsRemainAvailable() {
-        for (id in listOf("openai/gpt-oss-120b", "openai/gpt-oss-20b", "openrouter/free", "llama-3.3-70b-versatile", "gemini-2.5-flash")) {
+        for (id in listOf("openai/gpt-oss-120b", "openai/gpt-oss-20b", "openrouter/free", "llama-3.3-70b-versatile", "gemini-2.5-flash", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6")) {
             assertTrue(id, Model(modelId = id).supportsConversation())
         }
+        assertFalse("anthropic/claude-sonnet-4.6:batch", Model(modelId = "anthropic/claude-sonnet-4.6:batch").supportsConversation())
     }
 
     @Test fun audioAndSecurityModelsAreExcludedEvenWithMisleadingChatMetadata() {

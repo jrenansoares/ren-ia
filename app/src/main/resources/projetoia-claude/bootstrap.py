@@ -57,7 +57,6 @@ env = {key: value for key, value in os.environ.items()
 env.update({
     "ANTHROPIC_BASE_URL": url,
     "ANTHROPIC_API_KEY": token,
-    "ANTHROPIC_AUTH_TOKEN": token,
     "ANTHROPIC_MODEL": model,
     "ANTHROPIC_DEFAULT_SONNET_MODEL": sonnet_model,
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": haiku_model,
