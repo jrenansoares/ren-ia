@@ -37,8 +37,10 @@ import br.com.projetoia.app.data.ai.hasPassedModelCheck
 import br.com.projetoia.app.data.ai.hasCostAcknowledged
 import br.com.projetoia.app.data.ai.modelCheckFingerprint
 import br.com.projetoia.app.data.ai.modelStabilityScore
+import br.com.projetoia.app.data.ai.ModelBillingTier
 import br.com.projetoia.app.data.ai.ModelCheckManager
 import br.com.projetoia.app.data.ai.ModelCostAcknowledgement
+import br.com.projetoia.app.data.ai.classifyModelBilling
 import br.com.projetoia.app.data.ai.providerFallbackPriority
 import br.com.projetoia.app.data.ai.routeScore
 import br.com.projetoia.app.data.ai.routeProfileScore
@@ -239,7 +241,15 @@ fun FreeRouterPage() {
                         onClick = { toggle() },
                         headlineContent = { Text(model.displayName.ifBlank { model.modelId }) },
                         supportingContent = {
-                            Text("${provider.name} · ${if (verified) stringResource(R.string.projeto_model_check_ok) else stringResource(R.string.projeto_model_check_not_tested)} · ${stringResource(if (confirmedFree) R.string.projeto_router_price_free else if (costAcknowledged) R.string.projeto_router_price_confirmed else R.string.projeto_router_price_unknown)}")
+                            val tierLabel = when (classifyModelBilling(provider, model)) {
+                                ModelBillingTier.FREE -> R.string.projeto_router_price_free
+                                ModelBillingTier.FREE_TIER_QUOTA -> R.string.projeto_router_price_quota
+                                ModelBillingTier.PROMO_CREDITS -> R.string.projeto_router_price_promo
+                                ModelBillingTier.INCLUDED_BENEFIT -> R.string.projeto_router_price_benefit
+                                ModelBillingTier.PAID_ONLY -> R.string.projeto_router_price_paid
+                                ModelBillingTier.UNKNOWN -> if (costAcknowledged) R.string.projeto_router_price_confirmed else R.string.projeto_router_price_unknown
+                            }
+                            Text("${provider.name} · ${if (verified) stringResource(R.string.projeto_model_check_ok) else stringResource(R.string.projeto_model_check_not_tested)} · ${stringResource(tierLabel)}")
                         },
                         trailingContent = { Checkbox(checked = checked, enabled = !checkProgress.running, onCheckedChange = { toggle() }) },
                     )

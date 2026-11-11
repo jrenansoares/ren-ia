@@ -76,7 +76,11 @@ internal class ClaudeProcessTransport(private val process: Process) : Closeable 
     }
 
     fun diagnostic(token: String, url: String): String = synchronized(errors) {
-        errors.toString().replace(token, "[credencial local]").replace(url, "[conexão local]").takeLast(2000)
+        errors.toString()
+            .replace(token, "[credencial local]")
+            .replace(url, "[conexão local]")
+            .replace(Regex("(?i)Bearer\\s+[A-Za-z0-9._~+/-]+"), "Bearer [credencial]")
+            .takeLast(2000)
     }
 
     override fun close() {

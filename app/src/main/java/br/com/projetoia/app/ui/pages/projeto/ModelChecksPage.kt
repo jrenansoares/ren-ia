@@ -42,9 +42,11 @@ import br.com.projetoia.app.data.ai.modelStabilityScore
 import br.com.projetoia.app.data.ai.routeHealth
 import br.com.projetoia.app.data.ai.routeScore
 import me.rerere.ai.provider.Modality
+import br.com.projetoia.app.data.ai.ModelBillingTier
 import br.com.projetoia.app.data.ai.ModelCheckManager
 import br.com.projetoia.app.data.ai.ModelCheckStatus
 import br.com.projetoia.app.data.ai.canProbeModel
+import br.com.projetoia.app.data.ai.classifyModelBilling
 import br.com.projetoia.app.data.ai.isConfirmedFreeProbe
 import br.com.projetoia.app.data.ai.modelCheck
 import br.com.projetoia.app.data.datastore.SettingsStore
@@ -127,14 +129,17 @@ fun ModelChecksPage() {
                 Button(
                     onClick = {
                         scope.launch {
-                            if (pendingFreeModels == 0) {
-                                store.update { current ->
-                                    var updated = current
-                                    current.providers.filter { it.enabled && it.hasConfiguredCredentials() }.forEach { p ->
+                            store.update { current ->
+                                var updated = current
+                                current.providers.filter { it.enabled && it.hasConfiguredCredentials() }.forEach { p ->
+                                    val hasFreeQuota = p.models.any { m ->
+                                        classifyModelBilling(p, m) in setOf(ModelBillingTier.FREE, ModelBillingTier.FREE_TIER_QUOTA)
+                                    }
+                                    if (hasFreeQuota || pendingFreeModels == 0) {
                                         updated = updated.authorizeProviderRouting(p)
                                     }
-                                    updated.copy(freeRouter = updated.freeRouter.copy(automaticManagement = true))
                                 }
+                                updated.copy(freeRouter = updated.freeRouter.copy(automaticManagement = true))
                             }
                             manager.start(confirmedFreeOnly = true)
                         }
@@ -183,7 +188,8 @@ fun ModelChecksPage() {
             }
             items(models, key = { (provider, model) -> "${provider.id}:${model.id}" }) { (provider, model) ->
                 val result = settings.modelCheck(provider, model)
-                val isFree = isConfirmedFreeProbe(provider, model)
+                val tier = classifyModelBilling(provider, model)
+                val isFreeOrQuota = tier in setOf(ModelBillingTier.FREE, ModelBillingTier.FREE_TIER_QUOTA)
                 val canCheck = canProbeModel(provider, model)
                 CardGroup(modifier = Modifier.fillMaxWidth()) {
                     item(
@@ -214,7 +220,15 @@ fun ModelChecksPage() {
                                         result.toolFailureType?.let { Text(stringResource(R.string.projeto_model_checks_tool_failure_type, it), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                                     }
                                 }
-                                if (!isFree) Text(stringResource(if (settings.hasCostAcknowledged(provider, model)) R.string.ren_price_authorized else R.string.projeto_router_price_unknown), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                val tierText = when (tier) {
+                                    ModelBillingTier.FREE -> stringResource(R.string.projeto_router_price_free)
+                                    ModelBillingTier.FREE_TIER_QUOTA -> stringResource(R.string.projeto_router_price_quota)
+                                    ModelBillingTier.PROMO_CREDITS -> stringResource(R.string.projeto_router_price_promo)
+                                    ModelBillingTier.INCLUDED_BENEFIT -> stringResource(R.string.projeto_router_price_benefit)
+                                    ModelBillingTier.PAID_ONLY -> stringResource(R.string.projeto_router_price_paid)
+                                    ModelBillingTier.UNKNOWN -> if (settings.hasCostAcknowledged(provider, model)) stringResource(R.string.ren_price_authorized) else stringResource(R.string.projeto_router_price_unknown)
+                                }
+                                Text(tierText, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 if (result != null && result.status != ModelCheckStatus.OK) {
                                     Text(stringResource(R.string.projeto_model_checks_inactive), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 } else if (result?.status == ModelCheckStatus.OK && !result.toolsVerified) {
@@ -230,7 +244,7 @@ fun ModelChecksPage() {
                                 TextButton(
                                     enabled = canCheck && !progress.running,
                                     onClick = {
-                                        if (isFree || settings.hasCostAcknowledged(provider, model)) {
+                                        if (isFreeOrQuota || settings.hasCostAcknowledged(provider, model)) {
                                             manager.start(provider.id, model.id, confirmedFreeOnly = false)
                                         } else {
                                             pendingPaidCheck = provider to model

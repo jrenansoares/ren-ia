@@ -233,7 +233,11 @@
   <string name="projeto_model_checks_progress">Verificados %1$d de %2$d · %3$d responderam</string>
   <string name="projeto_model_checks_testing">Testando %1$s…</string>
   <string name="projeto_model_checks_save_error">Não foi possível salvar um resultado. Reabra esta tela e tente novamente.</string>
-  <string name="projeto_router_price_free">Rota gratuita do OpenRouter</string>
+  <string name="projeto_router_price_free">Modelo gratuito</string>
+  <string name="projeto_router_price_quota">Cota gratuita</string>
+  <string name="projeto_router_price_promo">Créditos promocionais</string>
+  <string name="projeto_router_price_benefit">Benefício de conta</string>
+  <string name="projeto_router_price_paid">Exclusivamente pago</string>
   <string name="projeto_router_price_confirmed">Custo confirmado</string>
   <string name="projeto_router_price_unknown">Custo não verificado</string>
   <string name="projeto_router_cost_title">Autorizar este modelo para contingência automática?</string>

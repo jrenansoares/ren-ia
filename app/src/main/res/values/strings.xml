@@ -1966,7 +1966,11 @@
   <string name="projeto_model_checks_progress">Checked %1$d of %2$d · %3$d responded</string>
   <string name="projeto_model_checks_testing">Testing %1$s…</string>
   <string name="projeto_model_checks_save_error">A result could not be saved. Reopen this page and try again.</string>
-  <string name="projeto_router_price_free">OpenRouter free route</string>
+  <string name="projeto_router_price_free">Free model</string>
+  <string name="projeto_router_price_quota">Free tier quota</string>
+  <string name="projeto_router_price_promo">Promotional credits</string>
+  <string name="projeto_router_price_benefit">Account benefit</string>
+  <string name="projeto_router_price_paid">Paid only</string>
   <string name="projeto_router_price_confirmed">Cost acknowledged</string>
   <string name="projeto_router_price_unknown">Cost not verified</string>
   <string name="projeto_router_cost_title">Authorize this model for automatic fallback?</string>

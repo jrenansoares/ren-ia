@@ -158,6 +158,7 @@ internal fun Settings.automaticRoutes(
         .map { model -> FreeRoute(provider, model, modelCheck(provider, model)?.toolsVerified == true) }
 }.sortedWith(
     compareBy<FreeRoute> { if (it.model.id == preferredModelId) 0 else 1 }
+        .thenBy { billingTierPriority(classifyModelBilling(it.provider, it.model)) }
         .thenBy {
             if (profile == br.com.projetoia.app.data.datastore.RoutingProfile.CUSTOM && it.model.id in freeRouter.customPriorityModelIds) {
                 freeRouter.customPriorityModelIds.indexOf(it.model.id)

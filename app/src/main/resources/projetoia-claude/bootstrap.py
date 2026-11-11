@@ -17,6 +17,7 @@ url = config["url"]
 token = config["token"]
 if not url.startswith("http://127.0.0.1:") or not token.isalnum() or len(token) != 64:
     raise SystemExit("Invalid local gateway")
+session_id = config.get("session_id") or config.get("sessionId")
 env = {key: value for key, value in os.environ.items()
        if key in {"HOME", "PATH", "TERM", "LANG", "LC_ALL", "TMPDIR", "PROOT_TMP_DIR"}}
 env.update({
@@ -40,8 +41,12 @@ args = ["claude", "--bare", "--print", "--verbose",
         "--input-format", "stream-json", "--output-format", "stream-json",
         "--permission-prompt-tool", "stdio", "--permission-mode", "default",
         "--model", "projeto-free", "--fallback-model", "projeto-free",
-        "--max-turns", "24", "--no-session-persistence", "--setting-sources=",
+        "--max-turns", "24", "--setting-sources=",
         "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
         "--tools", "Read,Write,Edit,Bash,Glob,Grep",
         "--append-system-prompt", config["system"]]
+if session_id:
+    args.extend(["--session-id", str(session_id)])
+else:
+    args.append("--no-session-persistence")
 os.execvpe("claude", args, env)

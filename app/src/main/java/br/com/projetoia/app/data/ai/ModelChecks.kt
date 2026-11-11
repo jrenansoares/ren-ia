@@ -95,6 +95,60 @@ internal fun canProbeModel(provider: ProviderSetting, model: Model): Boolean =
             is ProviderSetting.Account -> provider.credential != null
         }
 
+enum class ModelBillingTier {
+    FREE,
+    FREE_TIER_QUOTA,
+    PROMO_CREDITS,
+    INCLUDED_BENEFIT,
+    PAID_ONLY,
+    UNKNOWN,
+}
+
+internal fun classifyModelBilling(provider: ProviderSetting, model: Model): ModelBillingTier {
+    if (isConfirmedFreeProbe(provider, model)) return ModelBillingTier.FREE
+    if (provider is ProviderSetting.Account) return ModelBillingTier.INCLUDED_BENEFIT
+    val api = provider as? ProviderSetting.ApiKey ?: return ModelBillingTier.UNKNOWN
+    val host = runCatching { URI(api.baseUrl).host?.lowercase(java.util.Locale.ROOT) }.getOrNull().orEmpty()
+    return when {
+        host == "openrouter.ai" -> {
+            if (model.modelId == "openrouter/free" || model.modelId.endsWith(":free")) ModelBillingTier.FREE
+            else ModelBillingTier.PAID_ONLY
+        }
+        host == "api.openai.com" || host == "api.anthropic.com" -> ModelBillingTier.PAID_ONLY
+        provider is ProviderSetting.Google && provider.vertexAI -> ModelBillingTier.PAID_ONLY
+        provider is ProviderSetting.Google && !provider.vertexAI -> ModelBillingTier.FREE_TIER_QUOTA
+        host in setOf(
+            "integrate.api.nvidia.com",
+            "api.llm7.io",
+            "apihub.agnes-ai.com",
+        ) -> ModelBillingTier.FREE
+        host in setOf(
+            "api.groq.com",
+            "api.cerebras.ai",
+            "router.huggingface.co",
+            "api.mistral.ai",
+            "api.cohere.ai",
+            "api-inference.modelscope.cn",
+        ) -> ModelBillingTier.FREE_TIER_QUOTA
+        host in setOf(
+            "api.deepseek.com",
+            "api.siliconflow.com",
+            "api.together.xyz",
+            "api.fireworks.ai",
+        ) -> ModelBillingTier.PROMO_CREDITS
+        else -> ModelBillingTier.UNKNOWN
+    }
+}
+
+internal fun billingTierPriority(tier: ModelBillingTier): Int = when (tier) {
+    ModelBillingTier.FREE -> 0
+    ModelBillingTier.FREE_TIER_QUOTA -> 1
+    ModelBillingTier.PROMO_CREDITS -> 2
+    ModelBillingTier.INCLUDED_BENEFIT -> 3
+    ModelBillingTier.UNKNOWN -> 4
+    ModelBillingTier.PAID_ONLY -> 5
+}
+
 /** The default batch never contacts a provider whose price is unknown. */
 internal fun isConfirmedFreeProbe(provider: ProviderSetting, model: Model): Boolean {
     val api = provider as? ProviderSetting.OpenAI ?: return false

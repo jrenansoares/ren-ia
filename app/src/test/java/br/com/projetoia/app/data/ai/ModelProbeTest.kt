@@ -68,4 +68,27 @@ class ModelProbeTest {
         assertTrue(modelStabilityScore(Model(modelId = "llama-3.3-70b-versatile")) > modelStabilityScore(Model(modelId = "llama-preview-exp")))
         assertTrue(modelStabilityScore(Model(modelId = "meta/llama-3.3-70b-instruct")) > modelStabilityScore(Model(modelId = "experimental-beta")))
     }
+
+    @Test fun billingClassificationDistinguishesFreeQuotasFromPaidProviders() {
+        val openRouterFree = Model(modelId = "qwen/coder:free", chatSupported = true)
+        val openRouterPaid = Model(modelId = "anthropic/claude-3.5-sonnet", chatSupported = true)
+        val openRouter = ProviderSetting.OpenAI(baseUrl = "https://openrouter.ai/api/v1", apiKey = "fake", models = listOf(openRouterFree, openRouterPaid))
+        assertEquals(ModelBillingTier.FREE, classifyModelBilling(openRouter, openRouterFree))
+        assertEquals(ModelBillingTier.PAID_ONLY, classifyModelBilling(openRouter, openRouterPaid))
+
+        val google = ProviderSetting.Google(apiKey = "fake", vertexAI = false)
+        assertEquals(ModelBillingTier.FREE_TIER_QUOTA, classifyModelBilling(google, Model(modelId = "gemini-2.5-flash")))
+
+        val vertex = ProviderSetting.Google(apiKey = "fake", vertexAI = true)
+        assertEquals(ModelBillingTier.PAID_ONLY, classifyModelBilling(vertex, Model(modelId = "gemini-2.5-flash")))
+
+        val groq = ConnectionService.GROQ.configure("fake")
+        assertEquals(ModelBillingTier.FREE_TIER_QUOTA, classifyModelBilling(groq, Model(modelId = "llama-3.3-70b-versatile")))
+
+        val nvidia = ConnectionService.NVIDIA.configure("fake")
+        assertEquals(ModelBillingTier.FREE, classifyModelBilling(nvidia, Model(modelId = "meta/llama-3.3-70b-instruct")))
+
+        assertTrue(billingTierPriority(ModelBillingTier.FREE) < billingTierPriority(ModelBillingTier.FREE_TIER_QUOTA))
+        assertTrue(billingTierPriority(ModelBillingTier.FREE_TIER_QUOTA) < billingTierPriority(ModelBillingTier.PAID_ONLY))
+    }
 }

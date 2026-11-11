@@ -31,11 +31,11 @@ jobs:
       - name: Run JVM Unit Tests
         run: |
           chmod +x gradlew
-          ./gradlew testGithubDebugUnitTest :ai:testDebugUnitTest :workspace:testDebugUnitTest :common:testDebugUnitTest -x :web:buildWebUi
+          ./gradlew testGithubDebugUnitTest :ai:testDebugUnitTest :workspace:testDebugUnitTest :common:testDebugUnitTest -x :web:buildWebUi --max-workers=2 -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8"
 
       - name: Assemble Installable Debug APK
         run: |
-          ./gradlew assembleGithubDebug -x :web:buildWebUi
+          ./gradlew assembleGithubDebug -x :web:buildWebUi --max-workers=2 -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8"
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4

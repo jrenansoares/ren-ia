@@ -50,7 +50,8 @@ internal class ModelCheckManager(
             provider.models.filter { model ->
                 (modelId == null || model.id == modelId) && canProbeModel(provider, model) &&
                     (!confirmedFreeOnly || (
-                        (isConfirmedFreeProbe(provider, model) || snapshot.hasCostAcknowledged(provider, model)) &&
+                        classifyModelBilling(provider, model) != ModelBillingTier.PAID_ONLY &&
+                            (isConfirmedFreeProbe(provider, model) || snapshot.hasCostAcknowledged(provider, model)) &&
                             (modelId != null || snapshot.modelCheck(provider, model)?.status != ModelCheckStatus.OK)
                         ))
             }.sortedWith(

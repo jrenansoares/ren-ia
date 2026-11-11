@@ -193,6 +193,7 @@ class ClaudeChatRunner(
                     put("url", url)
                     put("token", gateway.token)
                     put("system", system)
+                    put("session_id", turn.conversationId.toString())
                 })
                 io.write(ClaudeProtocol.initialize())
                 withTimeout(60_000) {
