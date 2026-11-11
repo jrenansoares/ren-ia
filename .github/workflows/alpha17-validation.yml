@@ -92,6 +92,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Restore or cache Android debug keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-debug-keystore-v1
+
+      - name: Override debug keystore from secret (if configured)
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "${DEBUG_KEYSTORE_BASE64:-}" ]; then
+            mkdir -p ~/.android
+            printf '%s' "$DEBUG_KEYSTORE_BASE64" | base64 --decode > ~/.android/debug.keystore
+          fi
+
       - name: Run JVM Unit Tests
         run: |
           chmod +x gradlew

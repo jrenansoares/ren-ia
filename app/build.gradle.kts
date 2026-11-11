@@ -24,8 +24,8 @@ android {
         applicationId = "br.com.projetoia.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 16
-        versionName = "0.1.0-alpha16-ren"
+        versionCode = 17
+        versionName = "0.1.0-alpha17-ren"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
