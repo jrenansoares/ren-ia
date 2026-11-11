@@ -14,10 +14,12 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlin.coroutines.ContinuationInterceptor
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -43,7 +45,11 @@ internal class ClaudeLocalGateway(
     private val forwardRaw: (suspend (ApplicationCall, String) -> Unit)? = null,
     private val complete: suspend (BridgeRequest) -> JsonObject,
 ) {
-    private val requests = CoroutineScope(owner.coroutineContext + SupervisorJob(owner.coroutineContext[Job]))
+    private val requests = CoroutineScope(
+        owner.coroutineContext.minusKey(ContinuationInterceptor) +
+            Dispatchers.IO +
+            SupervisorJob(owner.coroutineContext[Job])
+    )
     val token = ByteArray(32).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
     private val server = embeddedServer(CIO, host = "127.0.0.1", port = 0) {
         routing {
