@@ -91,4 +91,68 @@ class ModelProbeTest {
         assertTrue(billingTierPriority(ModelBillingTier.FREE) < billingTierPriority(ModelBillingTier.FREE_TIER_QUOTA))
         assertTrue(billingTierPriority(ModelBillingTier.FREE_TIER_QUOTA) < billingTierPriority(ModelBillingTier.PAID_ONLY))
     }
+
+    @Test fun canProbeModelAllowsBuiltInToolsAndReadinessSeparatesAllThreeStates() {
+        val builtInModel = Model(
+            modelId = "gemini-2.5-flash",
+            chatSupported = true,
+            tools = setOf(BuiltInTools.Search),
+        )
+        val google = ProviderSetting.Google(name = "Google", apiKey = "AIza-test", models = listOf(builtInModel))
+        assertTrue(canProbeModel(google, builtInModel))
+
+        val baseSettings = br.com.projetoia.app.data.datastore.Settings(providers = listOf(google))
+        // State 1: Available in catalog, not checked yet
+        assertEquals(ModelReadiness.AVAILABLE, baseSettings.classifyModelReadiness(google, builtInModel))
+
+        // State 2: Accessible (chat verified, tools not yet verified)
+        val chatVerified = baseSettings.recordModelCheck(
+            ModelCheck(
+                providerId = google.id,
+                modelId = builtInModel.id,
+                fingerprint = modelCheckFingerprint(google, builtInModel),
+                checkedAt = 100L,
+                durationMs = 200L,
+                status = ModelCheckStatus.OK,
+                toolsVerified = false,
+            )
+        )
+        assertEquals(ModelReadiness.ACCESSIBLE, chatVerified.classifyModelReadiness(google, builtInModel))
+
+        // State 3: Tool-capable (live tool probe confirmed)
+        val toolVerified = chatVerified.recordModelCheck(
+            ModelCheck(
+                providerId = google.id,
+                modelId = builtInModel.id,
+                fingerprint = modelCheckFingerprint(google, builtInModel),
+                checkedAt = 200L,
+                durationMs = 150L,
+                status = ModelCheckStatus.OK,
+                toolsVerified = true,
+            )
+        )
+        assertEquals(ModelReadiness.TOOL_CAPABLE, toolVerified.classifyModelReadiness(google, builtInModel))
+    }
+
+    @Test fun interleaveAndCatalogMergePreserveMultiProviderAccessAndCapabilities() {
+        val nvidia = ConnectionService.NVIDIA.configure("nvapi-1")
+        val groq = ConnectionService.GROQ.configure("gsk-1")
+        val google = ConnectionService.GOOGLE_AI_STUDIO.configure("AIza-1")
+
+        val nModels = (1..5).map { FreeRoute(nvidia, Model(modelId = "nvidia-$it", chatSupported = true)) }
+        val gModels = (1..3).map { FreeRoute(groq, Model(modelId = "groq-$it", chatSupported = true)) }
+        val aModels = (1..2).map { FreeRoute(google, Model(modelId = "google-$it", chatSupported = true)) }
+
+        val interleaved = interleaveModelRoutesByProvider(listOf(nModels, gModels, aModels), limit = 6)
+        assertEquals(6, interleaved.size)
+        // Round-robin first 3 slots contain 1 from each provider -> no single-provider starvation
+        assertEquals(setOf(nvidia.id, groq.id, google.id), interleaved.take(3).map { it.provider.id }.toSet())
+
+        val rawClaude = Model(modelId = "anthropic/claude-sonnet-4.6", displayName = "Claude Sonnet 4.6", chatSupported = true)
+        val openRouter = ProviderSetting.OpenAI(baseUrl = "https://openrouter.ai/api/v1", apiKey = "sk-or-test")
+        val merged = br.com.projetoia.app.data.datastore.Settings(providers = listOf(openRouter))
+            .mergeProviderCatalog(openRouter, listOf(rawClaude), checkedAt = 50L)
+        val enrichedClaude = merged.providers.single().models.single()
+        assertTrue(ModelAbility.TOOL in enrichedClaude.abilities)
+    }
 }

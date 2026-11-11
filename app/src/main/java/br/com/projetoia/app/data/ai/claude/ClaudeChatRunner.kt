@@ -82,6 +82,8 @@ class ClaudeChatRunner(
             status.value = when (target) {
                 is ClaudeExecutionTarget.OpenRouterClaude ->
                     "Iniciando Claude Code com ${target.option.providerSetting.name} (${target.option.model.modelId})…"
+                is ClaudeExecutionTarget.DirectAnthropicClaude ->
+                    "Iniciando Claude Code com ${target.option.providerSetting.name} (${target.option.model.modelId})…"
                 is ClaudeExecutionTarget.FreeRouterFallback ->
                     "Iniciando Claude Code com as IAs autorizadas…"
             }
@@ -127,6 +129,7 @@ class ClaudeChatRunner(
             )
             val plannedExecutorModelId = when (target) {
                 is ClaudeExecutionTarget.OpenRouterClaude -> target.option.model.modelId
+                is ClaudeExecutionTarget.DirectAnthropicClaude -> target.option.model.modelId
                 is ClaudeExecutionTarget.FreeRouterFallback -> turn.model.modelId
             }
             val preparedPlan = if (shouldOrchestrateTask(task, turn)) {
@@ -172,7 +175,7 @@ class ClaudeChatRunner(
                             activity("Claude Code · ${target.option.providerSetting.name} · $cleanModel")
                         },
                     )
-                    val claudeModels = openRouterClaudeOptions(turn.settings).map { it.model.modelId }
+                    val claudeModels = nativeClaudeModels(turn.settings).map { it.modelId }
                     ClaudeLocalGateway(
                         owner = this,
                         availableModels = claudeModels,
@@ -182,6 +185,41 @@ class ClaudeChatRunner(
                         },
                     ) {
                         error("Encaminhamento direto OpenRouter indisponível neste turno")
+                    }
+                }
+                is ClaudeExecutionTarget.DirectAnthropicClaude -> {
+                    val usageTag = UsageTag(UsageSource.CHAT, turn.assistant.id, turn.conversationId)
+                    val forwarder = AnthropicTransparentForwarder(
+                        client = okHttpClient,
+                        option = target.option,
+                        familyOverrides = target.familyOverrides,
+                        onResponseTelemetry = { modelName, turnUsage ->
+                            val cleanModel = modelName?.takeIf { it.isNotBlank() && it != "<synthetic>" }
+                                ?: target.option.model.modelId
+                            respondedModelName.set(cleanModel)
+                            usage.set(usage.get().sum(turnUsage))
+                            lastUsage.set(turnUsage)
+                            steps++
+                            usageRecorder.recordExternal(
+                                tag = usageTag,
+                                providerSetting = target.option.providerSetting,
+                                modelId = target.option.model.id,
+                                modelName = cleanModel,
+                                usage = turnUsage,
+                            )
+                            activity("Claude Code · ${target.option.providerSetting.name} · $cleanModel")
+                        },
+                    )
+                    val claudeModels = nativeClaudeModels(turn.settings).map { it.modelId }
+                    ClaudeLocalGateway(
+                        owner = this,
+                        availableModels = claudeModels,
+                        forwardRaw = { call, rawBody ->
+                            activity("Aguardando ${target.option.providerSetting.name} · ${target.option.model.modelId}")
+                            forwarder.forward(call, rawBody)
+                        },
+                    ) {
+                        error("Encaminhamento direto Anthropic indisponível neste turno")
                     }
                 }
                 is ClaudeExecutionTarget.FreeRouterFallback -> {
@@ -261,6 +299,20 @@ class ClaudeChatRunner(
                             stepCount = steps,
                         )
                     }
+                    is ClaudeExecutionTarget.DirectAnthropicClaude -> {
+                        val modelLabel = respondedModelName.get() ?: target.option.model.modelId
+                        val providerLabel = target.option.providerSetting.name.ifBlank { "Anthropic" }
+                        message.copy(
+                            modelId = target.option.model.id,
+                            modelSnapshot = ModelSnapshot(
+                                modelLabel,
+                                "Claude Code · $providerLabel · $modelLabel",
+                            ),
+                            usage = usage.get(),
+                            lastUsage = lastUsage.get(),
+                            stepCount = steps,
+                        )
+                    }
                     is ClaudeExecutionTarget.FreeRouterFallback -> {
                         val route = active.get()
                         message.copy(
@@ -325,6 +377,25 @@ class ClaudeChatRunner(
                         put(
                             "subagent_model",
                             target.familyOverrides[ClaudeModelFamily.HAIKU] ?: target.option.model.modelId,
+                        )
+                    } else if (target is ClaudeExecutionTarget.DirectAnthropicClaude) {
+                        val cleanModel = target.option.model.modelId.removePrefix("anthropic/")
+                        put("model", cleanModel)
+                        put(
+                            "sonnet_model",
+                            target.familyOverrides[ClaudeModelFamily.SONNET] ?: cleanModel,
+                        )
+                        put(
+                            "opus_model",
+                            target.familyOverrides[ClaudeModelFamily.OPUS] ?: cleanModel,
+                        )
+                        put(
+                            "haiku_model",
+                            target.familyOverrides[ClaudeModelFamily.HAIKU] ?: cleanModel,
+                        )
+                        put(
+                            "subagent_model",
+                            target.familyOverrides[ClaudeModelFamily.HAIKU] ?: cleanModel,
                         )
                     }
                 })
@@ -404,11 +475,12 @@ class ClaudeChatRunner(
                                 frame["is_error"]?.jsonPrimitive?.booleanOrNull != true &&
                                     frame.string("subtype") == "success"
                             ) {
-                                "Claude Code interrompeu a tarefa. ${frame.array(
-                                    "errors"
-                                ).joinToString(
-                                    " "
-                                ) { it.jsonPrimitive.content }.replace(gateway.token, "[credencial local]").take(1600)}"
+                                val rawErrors = frame.array("errors").joinToString(" ") { it.jsonPrimitive.content }
+                                val redactedErrors = redactSensitiveSecrets(
+                                    rawErrors.replace(gateway.token, "[credencial local]"),
+                                    gateway.token,
+                                )
+                                "Claude Code interrompeu a tarefa. ${redactedErrors.take(1600)}"
                             }
                             message =
                                 message.copy(
@@ -425,11 +497,15 @@ class ClaudeChatRunner(
                     val executorProviderName = when (target) {
                         is ClaudeExecutionTarget.OpenRouterClaude ->
                             target.option.providerSetting.name.ifBlank { "OpenRouter" }
+                        is ClaudeExecutionTarget.DirectAnthropicClaude ->
+                            target.option.providerSetting.name.ifBlank { "Anthropic" }
                         is ClaudeExecutionTarget.FreeRouterFallback ->
                             active.get()?.provider?.name?.ifBlank { "Roteamento Gratuito" } ?: "Roteamento Gratuito"
                     }
                     val executorModelName = when (target) {
                         is ClaudeExecutionTarget.OpenRouterClaude ->
+                            respondedModelName.get() ?: target.option.model.modelId
+                        is ClaudeExecutionTarget.DirectAnthropicClaude ->
                             respondedModelName.get() ?: target.option.model.modelId
                         is ClaudeExecutionTarget.FreeRouterFallback ->
                             active.get()?.model?.modelId ?: turn.model.modelId

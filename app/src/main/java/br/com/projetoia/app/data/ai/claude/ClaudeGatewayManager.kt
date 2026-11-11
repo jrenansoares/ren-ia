@@ -78,10 +78,33 @@ class ClaudeGatewayManager(
                     )
                     ClaudeLocalGateway(
                         owner = scope,
-                        availableModels = openRouterClaudeOptions(initialSettings).map { it.model.modelId },
+                        availableModels = nativeClaudeModels(initialSettings).map { it.modelId },
                         forwardRaw = { call, rawBody -> forwarder.forward(call, rawBody) },
                     ) {
                         error("Encaminhamento direto OpenRouter indisponível neste terminal")
+                    }
+                }
+                is ClaudeExecutionTarget.DirectAnthropicClaude -> {
+                    val forwarder = AnthropicTransparentForwarder(
+                        client = okHttpClient,
+                        option = target.option,
+                        familyOverrides = target.familyOverrides,
+                        onResponseTelemetry = { modelName, turnUsage ->
+                            usageRecorder.recordExternal(
+                                tag = UsageTag(UsageSource.CHAT, Uuid.random(), Uuid.random()),
+                                providerSetting = target.option.providerSetting,
+                                modelId = target.option.model.id,
+                                modelName = modelName ?: target.option.model.modelId,
+                                usage = turnUsage,
+                            )
+                        },
+                    )
+                    ClaudeLocalGateway(
+                        owner = scope,
+                        availableModels = nativeClaudeModels(initialSettings).map { it.modelId },
+                        forwardRaw = { call, rawBody -> forwarder.forward(call, rawBody) },
+                    ) {
+                        error("Encaminhamento direto Anthropic indisponível neste terminal")
                     }
                 }
                 is ClaudeExecutionTarget.FreeRouterFallback -> {
@@ -150,6 +173,15 @@ class ClaudeGatewayManager(
                 val (primaryModel, sonnetModel, opusModel, haikuModel) = when (sessionTarget) {
                     is ClaudeExecutionTarget.OpenRouterClaude -> {
                         val base = sessionTarget.option.model.modelId
+                        listOf(
+                            base,
+                            sessionTarget.familyOverrides[ClaudeModelFamily.SONNET] ?: base,
+                            sessionTarget.familyOverrides[ClaudeModelFamily.OPUS] ?: base,
+                            sessionTarget.familyOverrides[ClaudeModelFamily.HAIKU] ?: base,
+                        )
+                    }
+                    is ClaudeExecutionTarget.DirectAnthropicClaude -> {
+                        val base = sessionTarget.option.model.modelId.removePrefix("anthropic/")
                         listOf(
                             base,
                             sessionTarget.familyOverrides[ClaudeModelFamily.SONNET] ?: base,

@@ -8,10 +8,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -39,8 +41,12 @@ import br.com.projetoia.app.data.ai.modelCheckFingerprint
 import br.com.projetoia.app.data.ai.modelStabilityScore
 import br.com.projetoia.app.data.ai.ModelBillingTier
 import br.com.projetoia.app.data.ai.ModelCheckManager
+import br.com.projetoia.app.data.ai.ModelCheckStatus
 import br.com.projetoia.app.data.ai.ModelCostAcknowledgement
+import br.com.projetoia.app.data.ai.ModelReadiness
 import br.com.projetoia.app.data.ai.classifyModelBilling
+import br.com.projetoia.app.data.ai.classifyModelReadiness
+import br.com.projetoia.app.data.ai.modelCheck
 import br.com.projetoia.app.data.ai.providerFallbackPriority
 import br.com.projetoia.app.data.ai.routeScore
 import br.com.projetoia.app.data.ai.routeProfileScore
@@ -210,6 +216,9 @@ fun FreeRouterPage() {
             items(available, key = { (provider, model) -> "${provider.id}:${model.id}" }) { (provider, model) ->
                 val checked = model.id in settings.freeRouter.approvedModelIds
                 val verified = settings.hasPassedModelCheck(provider, model)
+                val checkResult = settings.modelCheck(provider, model)
+                val readiness = settings.classifyModelReadiness(provider, model)
+                val checkingThisModel = checkProgress.running && model.id in checkProgress.activeModelIds
                 val confirmedFree = isConfirmedFreeProbe(provider, model)
                 val costAcknowledged = settings.hasCostAcknowledged(provider, model)
                 val routeReady = verified && (confirmedFree || costAcknowledged)
@@ -249,9 +258,33 @@ fun FreeRouterPage() {
                                 ModelBillingTier.PAID_ONLY -> R.string.projeto_router_price_paid
                                 ModelBillingTier.UNKNOWN -> if (costAcknowledged) R.string.projeto_router_price_confirmed else R.string.projeto_router_price_unknown
                             }
-                            Text("${provider.name} · ${if (verified) stringResource(R.string.projeto_model_check_ok) else stringResource(R.string.projeto_model_check_not_tested)} · ${stringResource(tierLabel)}")
+                            val statusText = when {
+                                checkingThisModel -> stringResource(R.string.projeto_model_checks_state_running)
+                                readiness == ModelReadiness.TOOL_CAPABLE -> stringResource(R.string.projeto_readiness_tool_capable)
+                                verified -> stringResource(R.string.projeto_readiness_accessible)
+                                checkResult != null -> buildString {
+                                    val errRes = when (checkResult.status) {
+                                        ModelCheckStatus.AUTH_ERROR -> R.string.projeto_model_check_auth
+                                        ModelCheckStatus.QUOTA -> R.string.projeto_model_check_quota
+                                        ModelCheckStatus.TIMEOUT -> R.string.projeto_model_check_timeout
+                                        ModelCheckStatus.UNAVAILABLE -> R.string.projeto_model_check_unavailable
+                                        ModelCheckStatus.NETWORK -> R.string.projeto_model_check_network
+                                        else -> R.string.projeto_model_check_error
+                                    }
+                                    append(stringResource(errRes))
+                                    checkResult.httpStatus?.let { append(" (HTTP $it)") }
+                                }
+                                else -> stringResource(R.string.projeto_readiness_available)
+                            }
+                            Text("${provider.name} · $statusText · ${stringResource(tierLabel)}")
                         },
-                        trailingContent = { Checkbox(checked = checked, enabled = !checkProgress.running, onCheckedChange = { toggle() }) },
+                        trailingContent = {
+                            if (checkingThisModel) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                            } else {
+                                Checkbox(checked = checked, enabled = !checkProgress.running, onCheckedChange = { toggle() })
+                            }
+                        },
                     )
                 }
             }

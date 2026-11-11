@@ -38,6 +38,7 @@ import br.com.projetoia.app.data.ai.transformers.onGenerationFinish
 import br.com.projetoia.app.data.ai.transformers.transformThinkTags
 import br.com.projetoia.app.data.ai.transformers.transforms
 import br.com.projetoia.app.data.ai.transformers.visualTransforms
+import br.com.projetoia.app.data.datastore.DEFAULT_AUTO_MODEL_ID
 import br.com.projetoia.app.data.datastore.Settings
 import br.com.projetoia.app.data.datastore.findProvider
 import br.com.projetoia.app.data.files.FileFolders
@@ -76,6 +77,7 @@ class ChatTurnContext(
     val claudeCode: Boolean = false,
     val programmingConsultants: Boolean = false,
     val freshClaudeSession: Boolean = false,
+    val useAutomaticRouter: Boolean = false,
 )
 
 /** 把会话变成发给模型的请求：系统提示词、上下文裁剪、输入输出转换都在这里 */
@@ -136,33 +138,20 @@ class ChatRequestFactory(
         }
         val needsTools =
             assistant.workspaceId != null || assistant.mcpServers.isNotEmpty() || assistant.localTools.isNotEmpty()
-        val explicitOpenRouterClaude = claudeCode &&
-            br.com.projetoia.app.data.ai.claude.findOpenRouterClaudeOption(settings, selectedModel) != null
-        val consultantClaudeOption = if (claudeCode && conversation.programmingConsultantsEnabled && !explicitOpenRouterClaude) {
-            br.com.projetoia.app.data.ai.claude.preferredDefaultOpenRouterClaudeOption(settings)
-        } else {
-            null
-        }
-        val automatic = if (explicitOpenRouterClaude) {
-            selectedModel
-        } else if (consultantClaudeOption != null) {
-            consultantClaudeOption.model
-        } else if (settings.freeRouter.enabled || programming) {
-            (if (programming) settings.programmingRoutes(task, selectedModel?.id) else settings.automaticRoutes(task, selectedModel?.id)).firstOrNull {
-                (!needsVision || me.rerere.ai.provider.Modality.IMAGE in it.model.inputModalities) &&
-                    (!needsTools || me.rerere.ai.provider.ModelAbility.TOOL in it.model.abilities || it.toolsVerified)
-            }?.model
-                ?: error(
-                    context.getString(
-                        if (programming) R.string.programming_route_required else R.string.projeto_router_empty
-                    )
-                )
-        } else {
-            null
-        }
-        val model = automatic ?: selectedModel
-            ?: throw IllegalStateException("No chat model selected")
-        val provider = model.findProvider(settings.providers) ?: error("Provider not found")
+        val resolved = resolveChatTurnSelection(
+            settings = settings,
+            selectedModel = selectedModel,
+            programming = programming,
+            claudeCode = claudeCode,
+            consultantsEnabled = conversation.programmingConsultantsEnabled,
+            needsVision = needsVision,
+            needsTools = needsTools,
+            task = task,
+            emptyRouterErrorMessage = context.getString(R.string.projeto_router_empty),
+            programmingRouteErrorMessage = context.getString(R.string.programming_route_required),
+        )
+        val model = resolved.model
+        val provider = resolved.providerSetting
         return ChatTurnContext(
             settings = settings,
             assistant = assistant,
@@ -185,6 +174,7 @@ class ChatRequestFactory(
             claudeCode = claudeCode,
             programmingConsultants = conversation.programmingConsultantsEnabled,
             freshClaudeSession = freshClaudeSession,
+            useAutomaticRouter = resolved.useAutomaticRouter,
         )
     }
 
@@ -198,7 +188,7 @@ class ChatRequestFactory(
         processingStatus: MutableStateFlow<String?>,
     ): Pair<AgentRequest, AgentHooks> {
         val usageTag = UsageTag(UsageSource.CHAT, turn.assistant.id, turn.conversationId)
-        val router = if (turn.settings.freeRouter.enabled || turn.programmingMode) {
+        val router = if (turn.useAutomaticRouter) {
             FreeRoutingProvider(
                 { setting -> usageRecorder.wrap(providerManager.getProviderByType(setting), usageTag) },
                 (if (turn.programmingMode) {
@@ -213,7 +203,7 @@ class ChatRequestFactory(
                     )
                 }),
                 processingStatus,
-                allowed = ::isAutomaticRouteCandidate,
+                allowed = if (turn.programmingMode) ::isProgrammingRouteAllowed else ::isAutomaticRouteCandidate,
                 observe = routingObserver::record,
             )
         } else {
@@ -270,7 +260,7 @@ class ChatRequestFactory(
             policy = turn.settings.retryPolicy(),
             onRetry = { Log.w(TAG, "Compression request failed, retrying in ${it.delay}", it.cause) },
         ) {
-            (if (turn.programmingMode) {
+            (if (turn.useAutomaticRouter && turn.programmingMode) {
                 FreeRoutingProvider(
                     { setting ->
                         usageRecorder.wrap(
@@ -281,6 +271,19 @@ class ChatRequestFactory(
                     turn.settings.programmingRoutes(preferredModelId = turn.model.id),
                     MutableStateFlow(null),
                     allowed = ::isProgrammingRouteAllowed,
+                    observe = routingObserver::record,
+                )
+            } else if (turn.useAutomaticRouter) {
+                FreeRoutingProvider(
+                    { setting ->
+                        usageRecorder.wrap(
+                            providerManager.getProviderByType(setting),
+                            UsageTag(UsageSource.COMPRESSION, turn.assistant.id, turn.conversationId)
+                        )
+                    },
+                    turn.settings.automaticRoutes(preferredModelId = turn.model.id),
+                    MutableStateFlow(null),
+                    allowed = ::isAutomaticRouteCandidate,
                     observe = routingObserver::record,
                 )
             } else {
@@ -449,3 +452,85 @@ internal fun backgroundTextGenerationParams(
 
 internal fun Settings.retryPolicy() =
     if (networkSetting.enableAutoRetry) RetryPolicy.NETWORK else RetryPolicy.NONE
+
+internal data class ResolvedTurnSelection(
+    val model: Model,
+    val providerSetting: ProviderSetting,
+    val useAutomaticRouter: Boolean,
+)
+
+/**
+ * Resolves the model, provider, and whether automatic multi-provider failover should run.
+ * Explicit non-auto selections (e.g., Claude via OpenRouter or Direct Anthropic, or any manual chat model)
+ * execute directly instead of being hijacked by FreeRouter.
+ */
+internal fun resolveChatTurnSelection(
+    settings: Settings,
+    selectedModel: Model?,
+    programming: Boolean,
+    claudeCode: Boolean,
+    consultantsEnabled: Boolean,
+    needsVision: Boolean,
+    needsTools: Boolean,
+    task: String,
+    emptyRouterErrorMessage: String,
+    programmingRouteErrorMessage: String,
+): ResolvedTurnSelection {
+    val enrichedSelected = selectedModel?.withRegistryCapabilities()
+    val selectedIsAuto = enrichedSelected == null || enrichedSelected.id == DEFAULT_AUTO_MODEL_ID
+    val selectedProvider = enrichedSelected?.takeUnless { selectedIsAuto }?.findProvider(settings.providers)
+
+    if (claudeCode) {
+        if (!selectedIsAuto && enrichedSelected != null && selectedProvider != null &&
+            br.com.projetoia.app.data.ai.claude.hasNativeClaudeOption(settings, enrichedSelected)
+        ) {
+            return ResolvedTurnSelection(enrichedSelected, selectedProvider, useAutomaticRouter = false)
+        }
+        val consultantDefault = if (consultantsEnabled) {
+            br.com.projetoia.app.data.ai.claude.preferredDefaultNativeClaudeModel(settings)
+                ?.withRegistryCapabilities()
+        } else {
+            null
+        }
+        val consultantProvider = consultantDefault?.findProvider(settings.providers)
+        if (consultantDefault != null && consultantProvider != null) {
+            return ResolvedTurnSelection(consultantDefault, consultantProvider, useAutomaticRouter = false)
+        }
+    }
+
+    if (!programming && !selectedIsAuto && enrichedSelected != null && selectedProvider != null) {
+        return ResolvedTurnSelection(enrichedSelected, selectedProvider, useAutomaticRouter = false)
+    }
+
+    if (programming && !claudeCode && !selectedIsAuto && enrichedSelected != null && selectedProvider != null) {
+        val explicitlyPermitted =
+            br.com.projetoia.app.data.ai.claude.hasNativeClaudeOption(settings, enrichedSelected) ||
+                isProgrammingRouteAllowed(selectedProvider, enrichedSelected) ||
+                settings.hasCostAcknowledged(selectedProvider, enrichedSelected)
+        if (explicitlyPermitted) {
+            return ResolvedTurnSelection(enrichedSelected, selectedProvider, useAutomaticRouter = false)
+        }
+    }
+
+    if (settings.freeRouter.enabled || programming) {
+        val routes = if (programming) {
+            settings.programmingRoutes(task, enrichedSelected?.id)
+        } else {
+            settings.automaticRoutes(task, enrichedSelected?.id)
+        }
+        val routed = routes.firstOrNull {
+            val enrichedRoute = it.model.withRegistryCapabilities()
+            (!needsVision || me.rerere.ai.provider.Modality.IMAGE in enrichedRoute.inputModalities) &&
+                (!needsTools || me.rerere.ai.provider.ModelAbility.TOOL in enrichedRoute.abilities || it.toolsVerified)
+        } ?: error(if (programming) programmingRouteErrorMessage else emptyRouterErrorMessage)
+        return ResolvedTurnSelection(
+            model = routed.model.withRegistryCapabilities(),
+            providerSetting = routed.provider,
+            useAutomaticRouter = true,
+        )
+    }
+
+    val model = enrichedSelected ?: throw IllegalStateException("No chat model selected")
+    val provider = model.findProvider(settings.providers) ?: error("Provider not found")
+    return ResolvedTurnSelection(model = model, providerSetting = provider, useAutomaticRouter = false)
+}

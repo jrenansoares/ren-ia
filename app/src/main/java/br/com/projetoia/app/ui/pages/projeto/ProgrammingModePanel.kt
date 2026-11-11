@@ -177,13 +177,16 @@ fun ProgrammingModePanel(
     val project = workspaces.firstOrNull { it.id == state.selectedId }
     val approvedCount = settings.programmingRoutes().size
     val availableCount = settings.providers.sumOf { provider -> provider.models.count { isProgrammingRouteAllowed(provider, it) } }
-    val openRouterClaudeOptions = br.com.projetoia.app.data.ai.claude.openRouterClaudeOptions(settings)
-    val openRouterClaudeCount = openRouterClaudeOptions.size
+    val nativeClaudeModels = br.com.projetoia.app.data.ai.claude.nativeClaudeModels(settings)
+    val openRouterClaudeCount = nativeClaudeModels.size
     val hasOpenRouterKeyWithoutClaude = openRouterClaudeCount == 0 && settings.providers.any { provider ->
-        provider.enabled &&
-            br.com.projetoia.app.data.ai.claude.isOpenRouterProvider(provider) &&
-            provider is me.rerere.ai.provider.ProviderSetting.OpenAI &&
-            provider.apiKey.isNotBlank()
+        provider.enabled && (
+            (br.com.projetoia.app.data.ai.claude.isOpenRouterProvider(provider) &&
+                provider is me.rerere.ai.provider.ProviderSetting.OpenAI &&
+                br.com.projetoia.app.data.ai.claude.firstConfiguredApiKey(provider.apiKey).isNotBlank()) ||
+            (provider is me.rerere.ai.provider.ProviderSetting.Claude &&
+                br.com.projetoia.app.data.ai.claude.firstConfiguredApiKey(provider.apiKey).isNotBlank())
+        )
     }
     val canUseOpenRouterClaude = openRouterClaudeCount > 0 && sharedLinux.environment?.claudeUsable == true
 
@@ -332,15 +335,15 @@ fun ProgrammingModePanel(
                             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            openRouterClaudeOptions.forEach { option ->
-                                val selected = currentChatModel?.id == option.model.id
+                            nativeClaudeModels.forEach { claudeModel ->
+                                val selected = currentChatModel?.id == claudeModel.id
                                 FilterChip(
                                     selected = selected,
-                                    onClick = { onSelectChatModel(option.model) },
+                                    onClick = { onSelectChatModel(claudeModel) },
                                     enabled = !state.busy && !executing,
                                     label = {
                                         Text(
-                                            text = option.model.displayName.ifBlank { option.model.modelId },
+                                            text = claudeModel.displayName.ifBlank { claudeModel.modelId },
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                         )

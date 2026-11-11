@@ -483,4 +483,268 @@ class OpenRouterClaudeGatewayTest {
         val noClaudeSettings = Settings(providers = listOf(google))
         assertEquals(gemini.id, promotedClaudeModelIdForToggle(noClaudeSettings, gemini, gemini.id))
     }
+
+    @Test
+    fun directAnthropicGatewayForwardsWithApiKeyHeaderStripsPrefixAndRedactsSecrets() = runBlocking {
+        val secretKey = "sk-ant-api03-direct-secret-key-9999"
+        var capturedApiKey: String? = null
+        var capturedAuth: String? = null
+        var capturedModel: String? = null
+        val upstreamServer = embeddedServer(CIO, port = 0, host = "127.0.0.1") {
+            routing {
+                post("/v1/messages") {
+                    capturedApiKey = call.request.header("x-api-key")
+                    capturedAuth = call.request.header("Authorization")
+                    val bodyJson = Json.parseToJsonElement(call.receiveText()).jsonObject
+                    capturedModel = bodyJson["model"]?.jsonPrimitive?.contentOrNull
+                    val sse = listOf(
+                        """event: message_start""",
+                        """data: {"type":"message_start","message":{"id":"msg_dir_1","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[],"usage":{"input_tokens":15,"output_tokens":0}}}""",
+                        "",
+                        """event: message_delta""",
+                        """data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":9}}""",
+                        "",
+                    ).joinToString("\n")
+                    call.respondText(sse, ContentType.Text.EventStream)
+                }
+            }
+        }.start(wait = false)
+
+        val port = upstreamServer.engine.resolvedConnectors().single().port
+        val directModel = Model(modelId = "anthropic/claude-sonnet-4-5", displayName = "Claude Sonnet 4.5")
+        val directProvider = ProviderSetting.Claude(
+            name = "Anthropic Direct",
+            baseUrl = "http://127.0.0.1:$port/v1",
+            apiKey = secretKey,
+            models = listOf(directModel),
+        )
+        val settings = Settings(providers = listOf(directProvider))
+        val target = resolveClaudeExecutionTarget(settings, directModel)
+        assertTrue(target is ClaudeExecutionTarget.DirectAnthropicClaude)
+        val directOption = (target as ClaudeExecutionTarget.DirectAnthropicClaude).option
+            .copy(messagesUrl = "http://127.0.0.1:$port/v1/messages")
+
+        var recordedModel: String? = null
+        var recordedUsage: TokenUsage? = null
+        val forwarder = AnthropicTransparentForwarder(httpClient, directOption) { m, u ->
+            recordedModel = m
+            recordedUsage = u
+        }
+        val gateway = ClaudeLocalGateway(
+            owner = this,
+            availableModels = listOf(directModel.modelId),
+            forwardRaw = { call, rawBody -> forwarder.forward(call, rawBody) },
+        ) { error("unused") }
+
+        try {
+            val url = gateway.start()
+            val req = Request.Builder()
+                .url("$url/v1/messages")
+                .header("Authorization", "Bearer ${gateway.token}")
+                .post("""{"model":"anthropic/claude-sonnet-4-5","stream":true,"messages":[]}""".toRequestBody(jsonMediaType))
+                .build()
+            httpClient.newCall(req).execute().use { resp ->
+                assertEquals(200, resp.code)
+                val body = resp.body.string()
+                assertTrue(body.contains("msg_dir_1"))
+            }
+            assertEquals(secretKey, capturedApiKey)
+            assertNull(capturedAuth)
+            assertEquals("claude-sonnet-4-5", capturedModel)
+            assertEquals("claude-sonnet-4-5", recordedModel)
+            assertEquals(24, recordedUsage?.totalTokens)
+
+            val leaked = "Error with $secretKey and Bearer sk-or-v1-abcd1234efgh"
+            val sanitized = redactSensitiveSecrets(leaked, secretKey)
+            assertFalse(sanitized.contains(secretKey))
+            assertFalse(sanitized.contains("abcd1234efgh"))
+            assertTrue(sanitized.contains("[REDACTED]"))
+        } finally {
+            gateway.close()
+            upstreamServer.stop(0, 500)
+        }
+    }
+
+    @Test
+    fun gatewayAcceptsChunkedRequestBodyWithoutContentLength() = runBlocking {
+        var receivedModel: String? = null
+        val upstreamServer = embeddedServer(CIO, port = 0, host = "127.0.0.1") {
+            routing {
+                post("/api/v1/messages") {
+                    val parsed = Json.parseToJsonElement(call.receiveText()).jsonObject
+                    receivedModel = parsed["model"]?.jsonPrimitive?.contentOrNull
+                    call.respondText(
+                        """{"id":"msg_chunk","type":"message","role":"assistant","model":"anthropic/claude-sonnet-4.6","content":[{"type":"text","text":"chunked ok"}],"usage":{"input_tokens":5,"output_tokens":3}}""",
+                        ContentType.Application.Json,
+                    )
+                }
+            }
+        }.start(wait = false)
+
+        val port = upstreamServer.engine.resolvedConnectors().single().port
+        val model = Model(modelId = "anthropic/claude-sonnet-4.6", displayName = "Claude Sonnet 4.6")
+        val option = OpenRouterClaudeOption(
+            providerSetting = ProviderSetting.OpenAI(
+                name = "OpenRouter",
+                baseUrl = "https://openrouter.ai/api/v1",
+                apiKey = "sk-or-chunked-key",
+                models = listOf(model),
+            ),
+            model = model,
+            family = ClaudeModelFamily.SONNET,
+            anthropicBaseUrl = "http://127.0.0.1:$port/api",
+            messagesUrl = "http://127.0.0.1:$port/api/v1/messages",
+            apiKey = "sk-or-chunked-key",
+        )
+        val forwarder = AnthropicTransparentForwarder(httpClient, option)
+        val gateway = ClaudeLocalGateway(
+            owner = this,
+            availableModels = listOf(model.modelId),
+            forwardRaw = { call, rawBody -> forwarder.forward(call, rawBody) },
+        ) { error("unused") }
+
+        try {
+            val url = gateway.start()
+            val payloadBytes = """{"model":"anthropic/claude-sonnet-4.6","messages":[{"role":"user","content":"ping"}]}"""
+                .toByteArray(StandardCharsets.UTF_8)
+            val chunkedBody = object : okhttp3.RequestBody() {
+                override fun contentType() = jsonMediaType
+                override fun writeTo(sink: okio.BufferedSink) {
+                    sink.write(payloadBytes)
+                }
+            }
+            val req = Request.Builder()
+                .url("$url/v1/messages")
+                .header("x-api-key", gateway.token)
+                .post(chunkedBody)
+                .build()
+            httpClient.newCall(req).execute().use { resp ->
+                assertEquals(200, resp.code)
+                assertTrue(resp.body.string().contains("chunked ok"))
+            }
+            assertEquals("anthropic/claude-sonnet-4.6", receivedModel)
+        } finally {
+            gateway.close()
+            upstreamServer.stop(0, 500)
+        }
+    }
+
+    @Test
+    fun chatTurnSelectionPreservesExplicitClaudeAndManualModelsWithFreeRouterEnabled() {
+        val autoModel = Model(
+            id = br.com.projetoia.app.data.datastore.DEFAULT_AUTO_MODEL_ID,
+            modelId = "projeto/auto",
+            displayName = "Automático",
+        )
+        val autoProvider = ProviderSetting.OpenAI(
+            name = "Projeto Auto",
+            baseUrl = "https://openrouter.ai/api/v1",
+            models = listOf(autoModel),
+        )
+        val freeModel = Model(modelId = "meta/llama-3.3-70b-instruct", displayName = "Llama 3.3")
+        val nvidia = ProviderSetting.OpenAI(
+            name = "NVIDIA",
+            baseUrl = "https://integrate.api.nvidia.com/v1",
+            apiKey = "nvapi-test",
+            models = listOf(freeModel),
+        )
+        val claudeOrModel = Model(modelId = "anthropic/claude-sonnet-4.6", displayName = "Claude Sonnet 4.6")
+        val openRouter = ProviderSetting.OpenAI(
+            name = "OpenRouter",
+            baseUrl = "https://openrouter.ai/api/v1",
+            apiKey = "sk-or-v1-key1, sk-or-v1-key2",
+            models = listOf(claudeOrModel),
+        )
+        val directClaudeModel = Model(modelId = "claude-sonnet-4-5", displayName = "Claude Sonnet 4.5")
+        val directClaudeProvider = ProviderSetting.Claude(
+            name = "Claude",
+            apiKey = "sk-ant-direct",
+            models = listOf(directClaudeModel),
+        )
+        val checkedFree = br.com.projetoia.app.data.ai.ModelCheck(
+            providerId = nvidia.id,
+            modelId = freeModel.id,
+            fingerprint = br.com.projetoia.app.data.ai.modelCheckFingerprint(nvidia, freeModel),
+            checkedAt = 10L,
+            durationMs = 120L,
+            status = br.com.projetoia.app.data.ai.ModelCheckStatus.OK,
+            toolsVerified = true,
+        )
+        val settings = Settings(
+            providers = listOf(autoProvider, nvidia, openRouter, directClaudeProvider),
+            freeRouter = br.com.projetoia.app.data.datastore.FreeRouterSettings(
+                enabled = true,
+                approvedModelIds = listOf(freeModel.id),
+                modelChecks = listOf(checkedFree),
+            ),
+        )
+
+        // Normal chat + explicit OpenRouter Claude does NOT get hijacked by FreeRouter
+        val normalClaude = br.com.projetoia.app.data.ai.resolveChatTurnSelection(
+            settings = settings,
+            selectedModel = claudeOrModel,
+            programming = false,
+            claudeCode = false,
+            consultantsEnabled = false,
+            needsVision = false,
+            needsTools = true,
+            task = "analisar arquivo",
+            emptyRouterErrorMessage = "empty",
+            programmingRouteErrorMessage = "prog-empty",
+        )
+        assertEquals(claudeOrModel.id, normalClaude.model.id)
+        assertEquals(openRouter.id, normalClaude.providerSetting.id)
+        assertFalse(normalClaude.useAutomaticRouter)
+        assertTrue(me.rerere.ai.provider.ModelAbility.TOOL in normalClaude.model.abilities)
+
+        // Normal chat + Direct Anthropic Claude executes directly
+        val directSelection = br.com.projetoia.app.data.ai.resolveChatTurnSelection(
+            settings = settings,
+            selectedModel = directClaudeModel,
+            programming = false,
+            claudeCode = false,
+            consultantsEnabled = false,
+            needsVision = false,
+            needsTools = true,
+            task = "corrigir bug",
+            emptyRouterErrorMessage = "empty",
+            programmingRouteErrorMessage = "prog-empty",
+        )
+        assertEquals(directClaudeModel.id, directSelection.model.id)
+        assertEquals(directClaudeProvider.id, directSelection.providerSetting.id)
+        assertFalse(directSelection.useAutomaticRouter)
+
+        // Claude Code + Direct Anthropic Claude keeps direct Claude target without FreeRouter
+        val claudeCodeDirect = br.com.projetoia.app.data.ai.resolveChatTurnSelection(
+            settings = settings,
+            selectedModel = directClaudeModel,
+            programming = true,
+            claudeCode = true,
+            consultantsEnabled = false,
+            needsVision = false,
+            needsTools = true,
+            task = "rodar testes",
+            emptyRouterErrorMessage = "empty",
+            programmingRouteErrorMessage = "prog-empty",
+        )
+        assertEquals(directClaudeModel.id, claudeCodeDirect.model.id)
+        assertFalse(claudeCodeDirect.useAutomaticRouter)
+
+        // Auto sentinel DOES route through FreeRouter
+        val autoTurn = br.com.projetoia.app.data.ai.resolveChatTurnSelection(
+            settings = settings,
+            selectedModel = autoModel,
+            programming = false,
+            claudeCode = false,
+            consultantsEnabled = false,
+            needsVision = false,
+            needsTools = false,
+            task = "olá",
+            emptyRouterErrorMessage = "empty",
+            programmingRouteErrorMessage = "prog-empty",
+        )
+        assertEquals(freeModel.id, autoTurn.model.id)
+        assertTrue(autoTurn.useAutomaticRouter)
+        assertEquals("sk-or-v1-key1", openRouterApiKey(openRouter))
+    }
 }

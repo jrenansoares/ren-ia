@@ -341,24 +341,25 @@ private fun ChatPageContent(
             )
         }.orEmpty()
     }
-    val automaticModelSelection = setting.freeRouter.enabled || conversation.config?.programmingMode == true
+    val programmingMode = conversation.config?.programmingMode == true
     val claudeCodeEnabled = conversation.programmingClaudeCodeEnabled
-    val routeModelIds = remember(setting, conversation.config?.programmingMode, claudeCodeEnabled, currentChatModel?.id) {
-        if (!automaticModelSelection) null
-        else if (conversation.config?.programmingMode == true) {
+    val routeModelIds = remember(setting, programmingMode, claudeCodeEnabled, currentChatModel?.id) {
+        if (!programmingMode) {
+            null
+        } else {
             setting.programmingRoutes(preferredModelId = currentChatModel?.id)
                 .mapTo(HashSet()) { it.model.id }
                 .apply {
-                    br.com.projetoia.app.data.ai.claude.openRouterClaudeOptions(setting)
-                        .forEach { add(it.model.id) }
+                    br.com.projetoia.app.data.ai.claude.nativeClaudeModels(setting)
+                        .forEach { add(it.id) }
+                    currentChatModel?.id?.let { add(it) }
                 }
-        } else {
-            setting.automaticRoutes(task = "", preferredModelId = currentChatModel?.id).mapTo(HashSet()) { it.model.id }
         }
     }
     val modelPickerProviders = remember(setting.providers, routeModelIds) {
-        if (routeModelIds == null) setting.providers
-        else setting.providers.sortedBy(::providerFallbackPriority).map { provider ->
+        val sortedProviders = setting.providers.sortedBy(::providerFallbackPriority)
+        if (routeModelIds == null) sortedProviders
+        else sortedProviders.map { provider ->
             provider.copyProvider(models = provider.models.filter { it.id in routeModelIds })
         }
     }
@@ -741,16 +742,17 @@ private fun TopBar(
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (chatModel != null && provider != null) {
-                        val isOpenRouterClaudeActive = conversation.programmingClaudeCodeEnabled &&
-                            br.com.projetoia.app.data.ai.claude.findOpenRouterClaudeOption(settings, chatModel) != null
+                        val isNativeClaudeActive = conversation.programmingClaudeCodeEnabled &&
+                            br.com.projetoia.app.data.ai.claude.hasNativeClaudeOption(settings, chatModel)
+                        val isAutoSelected = chatModel.id == br.com.projetoia.app.data.datastore.DEFAULT_AUTO_MODEL_ID
                         val assistantLabel = assistant.name.ifBlank {
                             stringResource(R.string.assistant_page_default_assistant)
                         }
                         Text(
                             text = when {
-                                isOpenRouterClaudeActive ->
+                                isNativeClaudeActive ->
                                     "Claude Code · ${chatModel.displayName} (${provider.name})"
-                                settings.freeRouter.enabled || conversation.config?.programmingMode == true ->
+                                isAutoSelected && (settings.freeRouter.enabled || conversation.config?.programmingMode == true) ->
                                     "$assistantLabel / ${stringResource(R.string.projeto_router_active)}"
                                 else ->
                                     "$assistantLabel / ${chatModel.displayName} (${provider.name})"

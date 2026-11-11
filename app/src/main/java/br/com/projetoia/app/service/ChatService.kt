@@ -1005,8 +1005,8 @@ class ChatService(
                 check(project != null && !project.isSsh() && project.shellStatus == "READY") {
                     context.getString(R.string.programming_environment_required)
                 }
-                val hasOpenRouterClaude = br.com.projetoia.app.data.ai.claude.openRouterClaudeOptions(settings).isNotEmpty()
-                check(settings.programmingRoutes().isNotEmpty() || hasOpenRouterClaude) {
+                val hasNativeClaude = br.com.projetoia.app.data.ai.claude.nativeClaudeModels(settings).isNotEmpty()
+                check(settings.programmingRoutes().isNotEmpty() || hasNativeClaude) {
                     context.getString(R.string.programming_route_required)
                 }
             }
@@ -1017,17 +1017,17 @@ class ChatService(
                     }
                     latest.withProgrammingProject(settings, workspaceId).let { updated ->
                         val claudeDefault = if (workspaceId != null && settings.programmingRoutes().isEmpty()) {
-                            br.com.projetoia.app.data.ai.claude.preferredDefaultOpenRouterClaudeOption(settings)
+                            br.com.projetoia.app.data.ai.claude.preferredDefaultNativeClaudeModel(settings)
                         } else {
                             null
                         }
                         val withClaudeDefault = if (claudeDefault != null) {
                             val currentModel = settings.getChatModelOf(updated)
-                            val selectedClaude = br.com.projetoia.app.data.ai.claude.findOpenRouterClaudeOption(settings, currentModel)
+                            val keepsNativeClaude = br.com.projetoia.app.data.ai.claude.hasNativeClaudeOption(settings, currentModel)
                             updated.copy(
                                 config = updated.config?.copy(
                                     programmingClaudeCode = true,
-                                    chatModelId = selectedClaude?.model?.id ?: claudeDefault.model.id,
+                                    chatModelId = if (keepsNativeClaude) currentModel?.id ?: claudeDefault.id else claudeDefault.id,
                                 ),
                             )
                         } else {

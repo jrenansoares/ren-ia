@@ -46,19 +46,33 @@ internal class ModelCheckManager(
     fun start(providerId: Uuid? = null, modelId: Uuid? = null, confirmedFreeOnly: Boolean = true) {
         if (job?.isActive == true || mutableProgress.value.running) return
         val snapshot = store.settingsFlow.value
-        val routes = snapshot.providers.filter { providerId == null || it.id == providerId }.flatMap { provider ->
-            provider.models.filter { model ->
-                (modelId == null || model.id == modelId) && canProbeModel(provider, model) &&
-                    (!confirmedFreeOnly || (
-                        classifyModelBilling(provider, model) != ModelBillingTier.PAID_ONLY &&
-                            (isConfirmedFreeProbe(provider, model) || snapshot.hasCostAcknowledged(provider, model)) &&
-                            (modelId != null || snapshot.modelCheck(provider, model)?.status != ModelCheckStatus.OK)
-                        ))
-            }.sortedWith(
-                compareByDescending<me.rerere.ai.provider.Model> { modelStabilityScore(it) + routeScore(it, "programação código análise") }
-                    .thenBy { it.modelId }
-            ).map { FreeRoute(provider, it) }
-        }.take(if (confirmedFreeOnly && modelId == null) MAX_BATCH_MODELS else Int.MAX_VALUE)
+        val perProviderRoutes = snapshot.providers
+            .filter { providerId == null || it.id == providerId }
+            .map { provider ->
+                provider.models.filter { model ->
+                    (modelId == null || model.id == modelId) && canProbeModel(provider, model) &&
+                        (!confirmedFreeOnly || (
+                            classifyModelBilling(provider, model) != ModelBillingTier.PAID_ONLY &&
+                                (isConfirmedFreeProbe(provider, model) ||
+                                    snapshot.hasCostAcknowledged(provider, model) ||
+                                    (snapshot.hasProviderRoutingAuthorization(provider) &&
+                                        classifyModelBilling(provider, model) in setOf(
+                                            ModelBillingTier.FREE,
+                                            ModelBillingTier.FREE_TIER_QUOTA,
+                                        ))) &&
+                                (modelId != null || snapshot.modelCheck(provider, model)?.status != ModelCheckStatus.OK)
+                            ))
+                }.sortedWith(
+                    compareByDescending<me.rerere.ai.provider.Model> { modelStabilityScore(it) + routeScore(it, "programação código análise") }
+                        .thenBy { it.modelId }
+                ).map { FreeRoute(provider, it) }
+            }
+            .filter { it.isNotEmpty() }
+        val routes = if (confirmedFreeOnly && modelId == null) {
+            interleaveModelRoutesByProvider(perProviderRoutes, MAX_BATCH_MODELS)
+        } else {
+            perProviderRoutes.flatten()
+        }
         if (routes.isEmpty()) return
         mutableProgress.value = ModelCheckProgress(running = true, total = routes.size)
         job = scope.launch(start = CoroutineStart.LAZY) {
@@ -121,7 +135,9 @@ internal class ModelCheckManager(
                                         }
                                         updated
                                     }
-                                    if (check.httpStatus in setOf(401, 402)) blockStatus = check.status
+                                    if (check.status == ModelCheckStatus.AUTH_ERROR || check.httpStatus == 402) {
+                                        blockStatus = check.status
+                                    }
                                     mutableProgress.update { it.copy(
                                         completed = it.completed + 1,
                                         passed = it.passed + if (check.status == ModelCheckStatus.OK) 1 else 0,
@@ -148,6 +164,32 @@ internal class ModelCheckManager(
     fun cancel() { job?.cancel() }
 
     private companion object {
-        const val MAX_BATCH_MODELS = 24
+        const val MAX_BATCH_MODELS = 32
     }
+}
+
+/**
+ * Interleave probe candidates across configured providers in round-robin order so
+ * a provider with a large catalog cannot starve smaller providers out of a batch.
+ */
+internal fun interleaveModelRoutesByProvider(
+    groups: List<List<FreeRoute>>,
+    limit: Int,
+): List<FreeRoute> {
+    if (limit <= 0 || groups.isEmpty()) return emptyList()
+    val result = mutableListOf<FreeRoute>()
+    var round = 0
+    while (result.size < limit) {
+        var addedInRound = false
+        for (group in groups) {
+            if (round < group.size) {
+                result += group[round]
+                addedInRound = true
+                if (result.size >= limit) break
+            }
+        }
+        if (!addedInRound) break
+        round++
+    }
+    return result
 }

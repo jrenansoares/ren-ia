@@ -30,14 +30,21 @@ internal fun Settings.mergeProviderCatalog(provider: ProviderSetting, catalog: L
     // Empty successful catalogs are recorded, not mistaken for inference access.
     val byName = catalog.distinctBy { it.modelId }.associateBy { it.modelId }
     val oldIds = current.models.mapTo(HashSet()) { it.modelId }
-    val discovered = conversationalCatalog(catalog)
+    val discovered = conversationalCatalog(catalog).map { it.withRegistryCapabilities() }
+    val discoveredByName = discovered.associateBy { it.modelId }
     val updatedModels = current.models.map { old ->
-        val fresh = byName[old.modelId]
+        val fresh = discoveredByName[old.modelId] ?: byName[old.modelId]
         // Preserve verified capabilities and UUIDs. Explicit provider deactivation still wins.
-        if (fresh == null) old else old.copy(
-            chatSupported = if (fresh.chatSupported == false) false else old.chatSupported ?: fresh.chatSupported,
-            abilities = (old.abilities + fresh.abilities).distinct(),
-        )
+        if (fresh == null) {
+            old.withRegistryCapabilities()
+        } else {
+            old.copy(
+                chatSupported = if (fresh.chatSupported == false) false else old.chatSupported ?: fresh.chatSupported,
+                abilities = (old.abilities + fresh.abilities).distinct(),
+                inputModalities = (old.inputModalities + fresh.inputModalities).distinct(),
+                outputModalities = (old.outputModalities + fresh.outputModalities).distinct(),
+            ).withRegistryCapabilities()
+        }
     } + discovered.filter { it.modelId !in oldIds }
     val missing = current.models.filter { it.modelId !in byName && it.modelId != "openrouter/free" }.map { it.modelId }
     val state = ProviderCatalogState(current.id, providerConnectionFingerprint(current), now, now, ModelCheckStatus.OK,

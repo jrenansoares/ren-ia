@@ -2086,4 +2086,11 @@
   <string name="projeto_connect_provider_cta">Connect AI provider</string>
   <string name="projeto_connect_provider_first">Connect an AI provider to start chatting</string>
   <string name="chat_page_select_model_first">Please select a model first</string>
+  <string name="projeto_readiness_available">Available in catalog · not verified</string>
+  <string name="projeto_readiness_accessible">Accessible · chat verified</string>
+  <string name="projeto_readiness_tool_capable">Tool &amp; agent capable</string>
+  <string name="projeto_readiness_counts">Available: %1$d · Accessible: %2$d · Tool-capable: %3$d</string>
+  <string name="projeto_model_checks_approve">Approve for router</string>
+  <string name="projeto_model_checks_approved">Approved</string>
+  <string name="projeto_model_direct_use_note">Available via direct selection in chat and Claude Code.</string>
 </resources>

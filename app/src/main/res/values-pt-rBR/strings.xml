@@ -353,4 +353,11 @@
   <string name="projeto_connect_provider_cta">Conectar provedor de IA</string>
   <string name="projeto_connect_provider_first">Conecte um provedor de IA para iniciar a conversa</string>
   <string name="chat_page_select_model_first">Selecione um modelo primeiro</string>
+  <string name="projeto_readiness_available">Disponível no catálogo · ainda não verificado</string>
+  <string name="projeto_readiness_accessible">Acessível · chat confirmado</string>
+  <string name="projeto_readiness_tool_capable">Apto para ferramentas e agentes</string>
+  <string name="projeto_readiness_counts">Disponíveis: %1$d · Acessíveis: %2$d · Aptos p/ ferramentas: %3$d</string>
+  <string name="projeto_model_checks_approve">Aprovar no roteador</string>
+  <string name="projeto_model_checks_approved">Aprovado</string>
+  <string name="projeto_model_direct_use_note">Disponível para seleção direta no chat e Claude Code.</string>
 </resources>

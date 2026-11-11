@@ -7,7 +7,7 @@ import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.embeddedServer
-import io.ktor.server.request.receiveText
+import io.ktor.server.request.receiveStream
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
@@ -19,6 +19,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.nio.charset.StandardCharsets
 import kotlin.coroutines.ContinuationInterceptor
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -126,15 +129,32 @@ internal class ClaudeLocalGateway(
             return
         }
         val length = call.request.headers[HttpHeaders.ContentLength]?.toLongOrNull()
-        if (length == null || length !in 1..MAX_BODY_BYTES) {
+        if (length != null && length !in 1..MAX_BODY_BYTES) {
             call.respondText(
-                error("invalid_request_error", "A bounded Content-Length is required"),
+                error("invalid_request_error", "Request body length must be within 1..$MAX_BODY_BYTES bytes"),
                 ContentType.Application.Json,
                 HttpStatusCode.PayloadTooLarge
             )
             return
         }
-        val rawBody = call.receiveText()
+        val rawBody = try {
+            readBoundedBody(call)
+        } catch (_: BodyTooLargeException) {
+            call.respondText(
+                error("invalid_request_error", "Request body exceeds $MAX_BODY_BYTES bytes"),
+                ContentType.Application.Json,
+                HttpStatusCode.PayloadTooLarge
+            )
+            return
+        }
+        if (rawBody.isBlank()) {
+            call.respondText(
+                error("invalid_request_error", "Request body must not be empty"),
+                ContentType.Application.Json,
+                HttpStatusCode.BadRequest
+            )
+            return
+        }
         if (forwardRaw != null) {
             val validJson = try {
                 Json.parseToJsonElement(rawBody).jsonObject
@@ -235,6 +255,25 @@ internal class ClaudeLocalGateway(
             put("message", message)
         })
     }.toString()
+
+    private suspend fun readBoundedBody(call: ApplicationCall): String = withContext(Dispatchers.IO) {
+        call.receiveStream().use { input ->
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            var total = 0L
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                if (read == 0) continue
+                total += read
+                if (total > MAX_BODY_BYTES) throw BodyTooLargeException()
+                output.write(buffer, 0, read)
+            }
+            output.toByteArray().toString(StandardCharsets.UTF_8)
+        }
+    }
+
+    private class BodyTooLargeException : RuntimeException()
 
     companion object {
         private const val MAX_BODY_BYTES = 16L * 1024 * 1024

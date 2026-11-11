@@ -35,27 +35,84 @@ private val BLOCKED_CUSTOM_HEADERS = setOf(
     "accept-encoding",
 )
 
-internal class AnthropicTransparentForwarder(
+internal class AnthropicTransparentForwarder private constructor(
     private val client: OkHttpClient,
-    private val option: OpenRouterClaudeOption,
+    private val messagesUrl: String,
+    private val apiKey: String,
+    private val providerSetting: ProviderSetting,
+    private val primaryModel: Model,
+    private val useApiKeyHeader: Boolean,
+    private val providerLabel: String,
     private val familyOverrides: Map<ClaudeModelFamily, String> = emptyMap(),
     private val onResponseTelemetry: (respondedModel: String?, usage: TokenUsage) -> Unit = { _, _ -> },
 ) {
+    constructor(
+        client: OkHttpClient,
+        option: OpenRouterClaudeOption,
+        familyOverrides: Map<ClaudeModelFamily, String> = emptyMap(),
+        onResponseTelemetry: (respondedModel: String?, usage: TokenUsage) -> Unit = { _, _ -> },
+    ) : this(
+        client = client,
+        messagesUrl = option.messagesUrl,
+        apiKey = option.apiKey,
+        providerSetting = option.providerSetting,
+        primaryModel = option.model,
+        useApiKeyHeader = false,
+        providerLabel = "OpenRouter",
+        familyOverrides = familyOverrides,
+        onResponseTelemetry = onResponseTelemetry,
+    )
+
+    constructor(
+        client: OkHttpClient,
+        option: DirectAnthropicClaudeOption,
+        familyOverrides: Map<ClaudeModelFamily, String> = emptyMap(),
+        onResponseTelemetry: (respondedModel: String?, usage: TokenUsage) -> Unit = { _, _ -> },
+    ) : this(
+        client = client,
+        messagesUrl = option.messagesUrl,
+        apiKey = option.apiKey,
+        providerSetting = option.providerSetting,
+        primaryModel = option.model,
+        useApiKeyHeader = true,
+        providerLabel = "Anthropic",
+        familyOverrides = familyOverrides,
+        onResponseTelemetry = onResponseTelemetry,
+    )
+
     internal fun resolveUpstreamModel(requestedModel: String): String {
-        val trimmed = requestedModel.trim()
-        if (trimmed.isEmpty() || trimmed.equals("projeto-free", ignoreCase = true)) {
-            return option.model.modelId
+        val raw = requestedModel.trim()
+        val normalizedInput = if (useApiKeyHeader && raw.startsWith("anthropic/", ignoreCase = true)) {
+            raw.substringAfter('/')
+        } else {
+            raw
         }
-        if (trimmed.startsWith("anthropic/", ignoreCase = true)) {
-            return trimmed
+        val primaryId = if (useApiKeyHeader && primaryModel.modelId.startsWith("anthropic/", ignoreCase = true)) {
+            primaryModel.modelId.substringAfter('/')
+        } else {
+            primaryModel.modelId
         }
-        val lower = trimmed.lowercase(Locale.ROOT)
-        return when {
-            lower.contains("opus") -> familyOverrides[ClaudeModelFamily.OPUS] ?: option.model.modelId
-            lower.contains("haiku") -> familyOverrides[ClaudeModelFamily.HAIKU] ?: option.model.modelId
-            lower.contains("fable") -> familyOverrides[ClaudeModelFamily.FABLE] ?: option.model.modelId
-            lower.contains("sonnet") -> familyOverrides[ClaudeModelFamily.SONNET] ?: option.model.modelId
-            else -> option.model.modelId
+        if (normalizedInput.isEmpty() || normalizedInput.equals("projeto-free", ignoreCase = true)) {
+            return primaryId
+        }
+        if (!useApiKeyHeader && normalizedInput.startsWith("anthropic/", ignoreCase = true)) {
+            return normalizedInput
+        }
+        if (useApiKeyHeader && normalizedInput.startsWith("claude-", ignoreCase = true)) {
+            return normalizedInput
+        }
+        val lower = normalizedInput.lowercase(Locale.ROOT)
+        val mapped = when {
+            lower.contains("opus") -> familyOverrides[ClaudeModelFamily.OPUS] ?: primaryId
+            lower.contains("haiku") -> familyOverrides[ClaudeModelFamily.HAIKU] ?: primaryId
+            lower.contains("fable") -> familyOverrides[ClaudeModelFamily.FABLE] ?: primaryId
+            lower.contains("sonnet") -> familyOverrides[ClaudeModelFamily.SONNET] ?: primaryId
+            else -> primaryId
+        }
+        return if (useApiKeyHeader && mapped.startsWith("anthropic/", ignoreCase = true)) {
+            mapped.substringAfter('/')
+        } else {
+            mapped
         }
     }
 
@@ -82,10 +139,16 @@ internal class AnthropicTransparentForwarder(
         val streamRequested = parsed["stream"]?.jsonPrimitive?.booleanOrNull == true
 
         val requestBuilder = Request.Builder()
-            .url(option.messagesUrl)
+            .url(messagesUrl)
             .post(outgoingBody.toRequestBody(JSON_MEDIA_TYPE))
-            .header("Authorization", "Bearer ${option.apiKey}")
-            .header("X-Title", "Projeto IA")
+            .apply {
+                if (useApiKeyHeader) {
+                    header("x-api-key", apiKey)
+                } else {
+                    header("Authorization", "Bearer $apiKey")
+                    header("X-Title", "Projeto IA")
+                }
+            }
             .header(
                 "anthropic-version",
                 call.request.headers["anthropic-version"]?.takeIf { it.isNotBlank() } ?: "2023-06-01",
@@ -103,7 +166,7 @@ internal class AnthropicTransparentForwarder(
             requestBuilder.header("anthropic-dangerous-direct-browser-access", it)
         }
 
-        for (header in option.providerSetting.customHeaders + option.model.customHeaders) {
+        for (header in providerSetting.customHeaders + primaryModel.customHeaders) {
             val name = header.name.trim()
             if (name.isBlank() || name.lowercase(Locale.ROOT) in BLOCKED_CUSTOM_HEADERS) continue
             requestBuilder.header(name, header.value)
@@ -112,7 +175,7 @@ internal class AnthropicTransparentForwarder(
         val response = try {
             client.newCall(requestBuilder.build()).await()
         } catch (t: Throwable) {
-            val safeMessage = sanitizeSecret(t.message ?: "Upstream connection failed", option.apiKey)
+            val safeMessage = redactSensitiveSecrets(t.message ?: "Upstream connection failed", apiKey)
             call.respondText(
                 buildAnthropicErrorJson("api_error", safeMessage),
                 ContentType.Application.Json,
@@ -127,10 +190,10 @@ internal class AnthropicTransparentForwarder(
 
             if (!upstream.isSuccessful) {
                 val rawError = upstream.body.string().take(32_768)
-                val sanitized = sanitizeSecret(rawError, option.apiKey).ifBlank {
+                val sanitized = redactSensitiveSecrets(rawError, apiKey).ifBlank {
                     buildAnthropicErrorJson("api_error", "Upstream HTTP ${upstream.code}")
                 }
-                val payload = normalizeErrorPayload(sanitized, upstream.code)
+                val payload = normalizeErrorPayload(sanitized, upstream.code, providerLabel)
                 val status = runCatching { HttpStatusCode.fromValue(upstream.code) }
                     .getOrDefault(HttpStatusCode.BadGateway)
                 call.respondText(payload, ContentType.Application.Json, status)
@@ -248,10 +311,15 @@ private fun inspectResponseJson(jsonText: String): TelemetrySnapshot? {
 }
 
 private val REDACTED_BEARER_REGEX = Regex("""(?i)\bBearer\s+[A-Za-z0-9._\-+/=]{8,}""")
-private val REDACTED_API_KEY_REGEX = Regex("""\b(?:sk-or-v1-|sk-ant-)[A-Za-z0-9._\-]{8,}""")
+private val REDACTED_API_KEY_REGEX = Regex("""\b(?:sk-or-v1-|sk-ant-|AIza|gsk_|nvapi-|xai-|hf_)[A-Za-z0-9._\-]{8,}""")
 
-private fun sanitizeSecret(text: String, secret: String): String {
-    var sanitized = if (secret.isBlank()) text else text.replace(secret, "[REDACTED]")
+internal fun redactSensitiveSecrets(text: String, vararg secrets: String): String {
+    var sanitized = text
+    for (secret in secrets) {
+        if (secret.isNotBlank()) {
+            sanitized = sanitized.replace(secret, "[REDACTED]")
+        }
+    }
     sanitized = REDACTED_BEARER_REGEX.replace(sanitized, "Bearer [REDACTED]")
     sanitized = REDACTED_API_KEY_REGEX.replace(sanitized, "[REDACTED]")
     return sanitized
@@ -266,19 +334,19 @@ private fun anthropicErrorTypeForStatus(statusCode: Int): String = when (statusC
     else -> "api_error"
 }
 
-private fun openRouterHintForStatus(statusCode: Int, message: String): String {
+private fun providerHintForStatus(statusCode: Int, message: String, providerLabel: String): String {
     val clean = message.trim().ifBlank { "HTTP $statusCode" }
     val hint = when (statusCode) {
-        401 -> "Check your OpenRouter API key in Settings."
-        402 -> "Insufficient credits on OpenRouter account."
-        404 -> "Claude model unavailable or not found on OpenRouter."
-        429 -> "OpenRouter rate limit reached; retry shortly."
+        401 -> "Check your $providerLabel API key in Settings."
+        402 -> "Insufficient credits on $providerLabel account."
+        404 -> "Claude model unavailable or not found on $providerLabel."
+        429 -> "$providerLabel rate limit reached; retry shortly."
         else -> null
     } ?: return clean
-    return if (clean.contains("OpenRouter", ignoreCase = true)) clean else "$clean ($hint)"
+    return if (clean.contains(providerLabel, ignoreCase = true)) clean else "$clean ($hint)"
 }
 
-private fun normalizeErrorPayload(body: String, statusCode: Int): String {
+private fun normalizeErrorPayload(body: String, statusCode: Int, providerLabel: String): String {
     val defaultType = anthropicErrorTypeForStatus(statusCode)
     val parsed = runCatching { Json.parseToJsonElement(body).jsonObject }.getOrNull()
     val errorElement = parsed?.get("error")
@@ -287,7 +355,7 @@ private fun normalizeErrorPayload(body: String, statusCode: Int): String {
             is JsonObject -> {
                 val existingType = errorElement["type"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
                 val rawMsg = errorElement["message"]?.jsonPrimitive?.contentOrNull.orEmpty()
-                val enrichedMsg = openRouterHintForStatus(statusCode, rawMsg)
+                val enrichedMsg = providerHintForStatus(statusCode, rawMsg, providerLabel)
                 JsonObject(errorElement.toMutableMap().apply {
                     if (existingType == null) put("type", JsonPrimitive(defaultType))
                     put("message", JsonPrimitive(enrichedMsg))
@@ -296,7 +364,7 @@ private fun normalizeErrorPayload(body: String, statusCode: Int): String {
             else -> JsonObject(
                 mapOf(
                     "type" to JsonPrimitive(defaultType),
-                    "message" to JsonPrimitive(openRouterHintForStatus(statusCode, errorElement.toString())),
+                    "message" to JsonPrimitive(providerHintForStatus(statusCode, errorElement.toString(), providerLabel)),
                 )
             )
         }
@@ -305,7 +373,7 @@ private fun normalizeErrorPayload(body: String, statusCode: Int): String {
             put("error", normalizedError)
         }).toString()
     }
-    return buildAnthropicErrorJson(defaultType, openRouterHintForStatus(statusCode, body))
+    return buildAnthropicErrorJson(defaultType, providerHintForStatus(statusCode, body, providerLabel))
 }
 
 private fun buildAnthropicErrorJson(type: String, message: String): String {
