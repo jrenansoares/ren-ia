@@ -939,19 +939,11 @@ class ChatService(
                         config.programmingMode && config.workspaceId != null
                     ) { context.getString(R.string.programming_activate_first) }
                     val promotedModelId = if (enabled) {
-                        val current = settings.getChatModelOf(latest)
-                        val alreadyClaude = br.com.projetoia.app.data.ai.claude.findOpenRouterClaudeOption(
-                            settings,
-                            current,
-                        ) != null
-                        if (alreadyClaude) {
-                            config.chatModelId
-                        } else {
-                            br.com.projetoia.app.data.ai.claude.preferredDefaultOpenRouterClaudeOption(settings)
-                                ?.model
-                                ?.id
-                                ?: config.chatModelId
-                        }
+                        br.com.projetoia.app.data.ai.claude.promotedClaudeModelIdForToggle(
+                            settings = settings,
+                            currentModel = settings.getChatModelOf(latest),
+                            fallbackModelId = config.chatModelId,
+                        )
                     } else {
                         config.chatModelId
                     }

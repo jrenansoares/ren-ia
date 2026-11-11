@@ -247,23 +247,65 @@ private fun inspectResponseJson(jsonText: String): TelemetrySnapshot? {
     )
 }
 
+private val REDACTED_BEARER_REGEX = Regex("""(?i)\bBearer\s+[A-Za-z0-9._\-+/=]{8,}""")
+private val REDACTED_API_KEY_REGEX = Regex("""\b(?:sk-or-v1-|sk-ant-)[A-Za-z0-9._\-]{8,}""")
+
 private fun sanitizeSecret(text: String, secret: String): String {
-    if (secret.isBlank()) return text
-    return text.replace(secret, "[REDACTED]")
+    var sanitized = if (secret.isBlank()) text else text.replace(secret, "[REDACTED]")
+    sanitized = REDACTED_BEARER_REGEX.replace(sanitized, "Bearer [REDACTED]")
+    sanitized = REDACTED_API_KEY_REGEX.replace(sanitized, "[REDACTED]")
+    return sanitized
+}
+
+private fun anthropicErrorTypeForStatus(statusCode: Int): String = when (statusCode) {
+    401 -> "authentication_error"
+    402, 403 -> "permission_error"
+    429 -> "rate_limit_error"
+    400, 404, 422 -> "invalid_request_error"
+    502, 503, 529 -> "overloaded_error"
+    else -> "api_error"
+}
+
+private fun openRouterHintForStatus(statusCode: Int, message: String): String {
+    val clean = message.trim().ifBlank { "HTTP $statusCode" }
+    val hint = when (statusCode) {
+        401 -> "Check your OpenRouter API key in Settings."
+        402 -> "Insufficient credits on OpenRouter account."
+        404 -> "Claude model unavailable or not found on OpenRouter."
+        429 -> "OpenRouter rate limit reached; retry shortly."
+        else -> null
+    } ?: return clean
+    return if (clean.contains("OpenRouter", ignoreCase = true)) clean else "$clean ($hint)"
 }
 
 private fun normalizeErrorPayload(body: String, statusCode: Int): String {
+    val defaultType = anthropicErrorTypeForStatus(statusCode)
     val parsed = runCatching { Json.parseToJsonElement(body).jsonObject }.getOrNull()
-    if (parsed != null && parsed.containsKey("error")) {
-        return if (parsed["type"]?.jsonPrimitive?.contentOrNull == "error") {
-            body
-        } else {
-            JsonObject(parsed.toMutableMap().apply {
-                put("type", JsonPrimitive("error"))
-            }).toString()
+    val errorElement = parsed?.get("error")
+    if (parsed != null && errorElement != null) {
+        val normalizedError = when (errorElement) {
+            is JsonObject -> {
+                val existingType = errorElement["type"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+                val rawMsg = errorElement["message"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val enrichedMsg = openRouterHintForStatus(statusCode, rawMsg)
+                JsonObject(errorElement.toMutableMap().apply {
+                    if (existingType == null) put("type", JsonPrimitive(defaultType))
+                    put("message", JsonPrimitive(enrichedMsg))
+                })
+            }
+            else -> JsonObject(
+                mapOf(
+                    "type" to JsonPrimitive(defaultType),
+                    "message" to JsonPrimitive(openRouterHintForStatus(statusCode, errorElement.toString())),
+                )
+            )
         }
+        return JsonObject(parsed.toMutableMap().apply {
+            put("type", JsonPrimitive("error"))
+            put("error", normalizedError)
+        }).toString()
     }
-    return buildAnthropicErrorJson("api_error", body.ifBlank { "HTTP $statusCode" })
+    return buildAnthropicErrorJson(defaultType, openRouterHintForStatus(statusCode, body))
 }
 
 private fun buildAnthropicErrorJson(type: String, message: String): String {

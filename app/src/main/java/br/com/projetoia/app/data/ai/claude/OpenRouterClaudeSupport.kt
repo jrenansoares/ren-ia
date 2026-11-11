@@ -170,6 +170,23 @@ internal fun preferredDefaultOpenRouterClaudeOption(
     return options.firstOrNull { it.family == ClaudeModelFamily.SONNET } ?: options.firstOrNull()
 }
 
+/**
+ * Resolve qual modelId deve ficar ativo na conversa ao habilitar o Claude Code:
+ * preserva se já for um Claude válido no OpenRouter; caso contrário promove
+ * automaticamente para o Claude padrão (preferindo Sonnet) para evitar fallback ao projeto-free.
+ */
+internal fun promotedClaudeModelIdForToggle(
+    settings: Settings,
+    currentModel: Model?,
+    fallbackModelId: Uuid?,
+    enabledFamilies: Set<ClaudeModelFamily> = STAGE_ENABLED_CLAUDE_FAMILIES,
+): Uuid? {
+    if (findOpenRouterClaudeOption(settings, currentModel, enabledFamilies) != null) {
+        return fallbackModelId
+    }
+    return preferredDefaultOpenRouterClaudeOption(settings, enabledFamilies)?.model?.id ?: fallbackModelId
+}
+
 private fun buildFamilyOverrides(
     selected: OpenRouterClaudeOption,
     options: List<OpenRouterClaudeOption>,

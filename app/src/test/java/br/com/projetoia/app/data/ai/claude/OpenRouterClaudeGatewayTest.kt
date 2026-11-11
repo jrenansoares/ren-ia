@@ -372,10 +372,114 @@ class OpenRouterClaudeGatewayTest {
                 val body = resp.body.string()
                 assertFalse(body.contains(secretKey))
                 assertTrue(body.contains("[REDACTED]"))
+                val json = Json.parseToJsonElement(body).jsonObject
+                assertEquals("error", json["type"]?.jsonPrimitive?.contentOrNull)
+                val err = json["error"]?.jsonObject
+                assertEquals("rate_limit_error", err?.get("type")?.jsonPrimitive?.contentOrNull)
+                assertTrue(err?.get("message")?.jsonPrimitive?.contentOrNull.orEmpty().contains("OpenRouter"))
             }
         } finally {
             gateway.close()
             upstreamServer.stop(0, 500)
         }
+    }
+
+    @Test
+    fun errorNormalizationMapsCreditAndAuthErrorsAndRedactsTokenPatterns() = runBlocking {
+        val secretKey = "sk-or-v1-secret-token-value-1234"
+        var nextStatus = HttpStatusCode.PaymentRequired
+        var nextBody = """{"error":{"message":"Insufficient credits for Bearer sk-or-v1-anothersecretkey","code":402}}"""
+        val upstreamServer = embeddedServer(CIO, port = 0, host = "127.0.0.1") {
+            routing {
+                post("/api/v1/messages") {
+                    call.respondText(nextBody, ContentType.Application.Json, nextStatus)
+                }
+            }
+        }.start(wait = false)
+
+        val port = upstreamServer.engine.resolvedConnectors().single().port
+        val model = Model(modelId = "anthropic/claude-sonnet-4.6", displayName = "Claude Sonnet 4.6")
+        val option = OpenRouterClaudeOption(
+            providerSetting = ProviderSetting.OpenAI(
+                name = "OpenRouter",
+                baseUrl = "https://openrouter.ai/api/v1",
+                apiKey = secretKey,
+                models = listOf(model),
+            ),
+            model = model,
+            family = ClaudeModelFamily.SONNET,
+            anthropicBaseUrl = "http://127.0.0.1:$port/api",
+            messagesUrl = "http://127.0.0.1:$port/api/v1/messages",
+            apiKey = secretKey,
+        )
+        val forwarder = AnthropicTransparentForwarder(httpClient, option)
+        val gateway = ClaudeLocalGateway(
+            owner = this,
+            availableModels = listOf(model.modelId),
+            forwardRaw = { call, rawBody -> forwarder.forward(call, rawBody) },
+        ) { error("unused") }
+
+        try {
+            val url = gateway.start()
+            fun send(): Pair<Int, String> {
+                val req = Request.Builder()
+                    .url("$url/v1/messages")
+                    .header("x-api-key", gateway.token)
+                    .post("{\"model\":\"anthropic/claude-sonnet-4.6\",\"messages\":[]}".toRequestBody(jsonMediaType))
+                    .build()
+                return httpClient.newCall(req).execute().use { it.code to it.body.string() }
+            }
+
+            val (code402, body402) = send()
+            assertEquals(402, code402)
+            assertFalse(body402.contains("anothersecretkey"))
+            val json402 = Json.parseToJsonElement(body402).jsonObject
+            assertEquals("error", json402["type"]?.jsonPrimitive?.contentOrNull)
+            assertEquals("permission_error", json402["error"]?.jsonObject?.get("type")?.jsonPrimitive?.contentOrNull)
+            assertTrue(json402["error"]?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull.orEmpty().contains("Insufficient credits"))
+
+            nextStatus = HttpStatusCode.Unauthorized
+            nextBody = """{"error":{"message":"User not found"}}"""
+            val (code401, body401) = send()
+            assertEquals(401, code401)
+            val json401 = Json.parseToJsonElement(body401).jsonObject
+            assertEquals("authentication_error", json401["error"]?.jsonObject?.get("type")?.jsonPrimitive?.contentOrNull)
+            assertTrue(json401["error"]?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull.orEmpty().contains("OpenRouter API key"))
+        } finally {
+            gateway.close()
+            upstreamServer.stop(0, 500)
+        }
+    }
+
+    @Test
+    fun promotedClaudeModelIdForTogglePromotesNonClaudeAndPreservesClaudeSelection() {
+        val opus = Model(modelId = "anthropic/claude-opus-4.6", displayName = "Claude Opus 4.6")
+        val sonnet = Model(modelId = "anthropic/claude-sonnet-4.6", displayName = "Claude Sonnet 4.6")
+        val freeRouter = Model(modelId = "openrouter/free", displayName = "OpenRouter Free")
+        val gemini = Model(modelId = "gemini-2.5-flash", displayName = "Gemini 2.5 Flash")
+
+        val openRouter = ProviderSetting.OpenAI(
+            name = "OpenRouter",
+            baseUrl = "https://openrouter.ai/api/v1",
+            apiKey = "sk-or-test-key",
+            models = listOf(opus, sonnet, freeRouter),
+        )
+        val google = ProviderSetting.Google(
+            name = "Google",
+            apiKey = "AIza-test",
+            models = listOf(gemini),
+        )
+        val settings = Settings(providers = listOf(openRouter, google))
+
+        // Non-Claude models (free router or Gemini) promote to Sonnet by default
+        assertEquals(sonnet.id, promotedClaudeModelIdForToggle(settings, freeRouter, freeRouter.id))
+        assertEquals(sonnet.id, promotedClaudeModelIdForToggle(settings, gemini, gemini.id))
+
+        // Already-selected Claude Opus stays Opus instead of getting overwritten
+        assertEquals(opus.id, promotedClaudeModelIdForToggle(settings, opus, opus.id))
+
+        // Without OpenRouter key/Claude models, preserves fallback
+        val noClaudeSettings = Settings(providers = listOf(google))
+        assertEquals(gemini.id, promotedClaudeModelIdForToggle(noClaudeSettings, gemini, gemini.id))
     }
 }
