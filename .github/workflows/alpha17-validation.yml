@@ -5,13 +5,22 @@ on:
   push:
     branches:
       - feature/alpha17-claude
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'scripts/*.ps1'
   pull_request:
     branches:
       - main
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate-and-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -19,7 +28,13 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      - name: Record validated commit SHA
+        run: |
+          echo "Validated commit: $(git rev-parse HEAD)"
+          git status --short
+
       - name: Validate bootstrap.py under POSIX python3 -I -S
+        timeout-minutes: 2
         run: |
           python3 -I -S - << 'PY'
           import json, os, pathlib, stat, subprocess, sys, tempfile
@@ -84,6 +99,7 @@ jobs:
           PY
 
       - name: Set up JDK 21 (JetBrains Runtime)
+        timeout-minutes: 5
         uses: actions/setup-java@v4
         with:
           distribution: 'jetbrains'
@@ -91,6 +107,15 @@ jobs:
           cache: 'gradle'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Android SDK NDK and Build-Tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/lib/android/sdk/ndk/28.2.13676358
+            /usr/local/lib/android/sdk/build-tools/36.0.0
+            /usr/local/lib/android/sdk/build-tools/37.0.0
+          key: ${{ runner.os }}-android-sdk-${{ hashFiles('gradle/libs.versions.toml', 'app/build.gradle.kts', 'terminal/build.gradle.kts', 'workspace/build.gradle.kts') }}
 
       - name: Restore or cache Android debug keystore
         uses: actions/cache@v4
@@ -108,13 +133,16 @@ jobs:
           fi
 
       - name: Run JVM Unit Tests
+        timeout-minutes: 15
         run: |
           chmod +x gradlew
-          ./gradlew testGithubDebugUnitTest :ai:testDebugUnitTest :workspace:testDebugUnitTest :common:testDebugUnitTest -x :web:buildWebUi --max-workers=2 -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8"
+          ./gradlew testGithubDebugUnitTest :ai:testDebugUnitTest :workspace:testDebugUnitTest :common:testDebugUnitTest -x :web:buildWebUi --build-cache --max-workers=2 -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8"
 
       - name: Assemble Installable Debug APK
+        timeout-minutes: 15
         run: |
-          ./gradlew assembleGithubDebug -x :web:buildWebUi --max-workers=2 -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8"
+          ./gradlew assembleGithubDebug -x :web:buildWebUi --build-cache --max-workers=2 -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8"
+          echo "Built APK from validated commit $(git rev-parse HEAD)"
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4

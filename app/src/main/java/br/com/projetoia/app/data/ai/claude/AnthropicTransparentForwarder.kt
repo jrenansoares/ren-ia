@@ -208,8 +208,8 @@ internal class AnthropicTransparentForwarder private constructor(
                 var outputTokens = 0
                 var cachedTokens = 0
 
-                try {
-                    call.respondOutputStream(ContentType.Text.EventStream, HttpStatusCode.OK) {
+                call.respondOutputStream(ContentType.Text.EventStream, HttpStatusCode.OK) {
+                    try {
                         val reader = BufferedReader(
                             InputStreamReader(upstream.body.byteStream(), StandardCharsets.UTF_8)
                         )
@@ -235,18 +235,18 @@ internal class AnthropicTransparentForwarder private constructor(
                             }
                         }
                         writer.flush()
+                    } finally {
+                        val total = inputTokens + outputTokens
+                        onResponseTelemetry(
+                            respondedModel ?: resolvedModel,
+                            TokenUsage(
+                                promptTokens = inputTokens,
+                                completionTokens = outputTokens,
+                                cachedTokens = cachedTokens,
+                                totalTokens = total,
+                            ),
+                        )
                     }
-                } finally {
-                    val total = inputTokens + outputTokens
-                    onResponseTelemetry(
-                        respondedModel ?: resolvedModel,
-                        TokenUsage(
-                            promptTokens = inputTokens,
-                            completionTokens = outputTokens,
-                            cachedTokens = cachedTokens,
-                            totalTokens = total,
-                        ),
-                    )
                 }
             } else {
                 val responseText = upstream.body.string()

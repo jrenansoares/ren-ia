@@ -162,6 +162,7 @@ class OpenRouterClaudeGatewayTest {
 
         var telemetryModel: String? = null
         var telemetryUsage: TokenUsage? = null
+        val telemetryLatch = java.util.concurrent.CountDownLatch(1)
         val forwarder = AnthropicTransparentForwarder(
             client = httpClient,
             option = option,
@@ -169,6 +170,7 @@ class OpenRouterClaudeGatewayTest {
             onResponseTelemetry = { model, usage ->
                 telemetryModel = model
                 telemetryUsage = usage
+                telemetryLatch.countDown()
             },
         )
         val gateway = ClaudeLocalGateway(
@@ -250,6 +252,7 @@ class OpenRouterClaudeGatewayTest {
             assertTrue(responseText.contains("tool_use"))
             assertTrue(responseText.contains("README.md"))
 
+            assertTrue(telemetryLatch.await(5, java.util.concurrent.TimeUnit.SECONDS))
             assertEquals("anthropic/claude-sonnet-4.6", telemetryModel)
             assertEquals(120, telemetryUsage?.promptTokens)
             assertEquals(45, telemetryUsage?.completionTokens)
