@@ -281,7 +281,7 @@ class ChatRequestFactory(
                             UsageTag(UsageSource.COMPRESSION, turn.assistant.id, turn.conversationId)
                         )
                     },
-                    turn.settings.automaticRoutes(preferredModelId = turn.model.id),
+                    turn.settings.automaticRoutes(task = "", preferredModelId = turn.model.id),
                     MutableStateFlow(null),
                     allowed = ::isAutomaticRouteCandidate,
                     observe = routingObserver::record,

@@ -58,8 +58,6 @@ import br.com.projetoia.app.data.ai.claude.isOpenRouterProvider
 import br.com.projetoia.app.data.datastore.SettingsStore
 import br.com.projetoia.app.data.datastore.hasConfiguredCredentials
 import me.rerere.ai.provider.Modality
-import br.com.projetoia.app.data.datastore.SettingsStore
-import br.com.projetoia.app.data.datastore.hasConfiguredCredentials
 import br.com.projetoia.app.ui.components.nav.BackButton
 import br.com.projetoia.app.ui.components.ui.CardGroup
 import me.rerere.ai.provider.Model
