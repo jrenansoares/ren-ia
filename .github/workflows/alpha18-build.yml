@@ -1,0 +1,159 @@
+name: Alpha 18 Validation & Debug APK
+
+on:
+  push:
+    branches: [main, 'feature/alpha*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError"
+
+jobs:
+  validate-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Record validated commit
+        run: |
+          git rev-parse HEAD
+          git status --short
+
+      - name: Validate Claude Code bootstrap on POSIX
+        timeout-minutes: 2
+        run: python3 -I -S scripts/validate-bootstrap.py
+
+      # The existing AGP 9.4 / Gradle 9.6 builds run on JDK 21;
+      # Java and Kotlin bytecode targets remain 17 in the Android modules.
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          # v3 defaults to the removed legacy package "tools".
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+
+      # :web:preBuild requires pnpm. Build its resources instead of excluding
+      # :web:buildWebUi and shipping an APK without the embedded web interface.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: web-ui/pnpm-lock.yaml
+
+      - name: Install web interface dependencies
+        working-directory: web-ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare Gradle and SDK path
+        run: |
+          chmod +x ./gradlew
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [ -z "$sdk_root" ] || [ ! -d "$sdk_root" ]; then
+            echo "::error::Android SDK directory is unavailable"
+            exit 1
+          fi
+          if [ ! -f local.properties ]; then
+            printf 'sdk.dir=%s\n' "$sdk_root" > local.properties
+          fi
+
+      - name: Restore Android debug keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-debug-keystore-v1
+
+      - name: Use configured debug keystore
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "${DEBUG_KEYSTORE_BASE64:-}" ]; then
+            mkdir -p ~/.android
+            printf '%s' "$DEBUG_KEYSTORE_BASE64" | base64 --decode > ~/.android/debug.keystore
+          fi
+
+      # testDebugUnitTest covers the unflavored library modules. The app has
+      # distribution flavors, so its GitHub test task must also be explicit.
+      # CLI JVM settings override the repository's 8 GiB Gradle default and
+      # keep the entire JVM argument list together, including metaspace.
+      - name: Run JVM unit tests
+        run: |
+          ./gradlew testDebugUnitTest --stacktrace :app:testGithubDebugUnitTest \
+            --no-daemon --max-workers=2 -Dorg.gradle.parallel=false \
+            -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8"
+
+      - name: Assemble debug APKs
+        run: |
+          ./gradlew assembleDebug --no-daemon --stacktrace \
+            --max-workers=2 -Dorg.gradle.parallel=false \
+            -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8"
+
+      - name: Verify and stage GitHub debug APK
+        shell: bash
+        run: |
+          shopt -s nullglob
+          # Preserve both distribution flavors. Stage the GitHub APK in the
+          # requested artifact directory; AGP writes it to github/debug.
+          source_apks=(app/build/outputs/apk/github/debug/*.apk)
+          if [ "${#source_apks[@]}" -eq 0 ]; then
+            echo "::error::No GitHub debug APK was generated"
+            exit 1
+          fi
+          mkdir -p app/build/outputs/apk/debug
+          cp "${source_apks[@]}" app/build/outputs/apk/debug/
+          apks=(app/build/outputs/apk/debug/*.apk)
+          if [ "${#apks[@]}" -eq 0 ]; then
+            echo "::error::No APK found in app/build/outputs/apk/debug"
+            exit 1
+          fi
+          for apk in "${apks[@]}"; do
+            test -s "$apk"
+            sha256sum "$apk"
+          done
+
+      - name: Upload Alpha 18 debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ren-IA-Alpha18-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Upload JVM test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ren-IA-Alpha18-test-reports
+          path: |
+            **/build/reports/tests/
+            **/build/test-results/
+          if-no-files-found: ignore

@@ -203,6 +203,30 @@ data class BackupReminderConfig(
 )
 
 @Serializable
+enum class RoutingProfile {
+    @SerialName("auto")
+    AUTO,
+
+    @SerialName("coding")
+    CODING,
+
+    @SerialName("reasoning")
+    REASONING,
+
+    @SerialName("vision")
+    VISION,
+
+    @SerialName("video")
+    VIDEO,
+
+    @SerialName("fast")
+    FAST,
+
+    @SerialName("custom")
+    CUSTOM,
+}
+
+@Serializable
 data class FreeRouterSettings(
     val enabled: Boolean = false,
     val approvedModelIds: List<Uuid> = emptyList(),
@@ -215,4 +239,6 @@ data class FreeRouterSettings(
     val catalogs: List<br.com.projetoia.app.data.ai.ProviderCatalogState> = emptyList(),
     val providerAuthorizations: List<br.com.projetoia.app.data.ai.ProviderRoutingAuthorization> = emptyList(),
     val routeHealth: List<br.com.projetoia.app.data.ai.ModelRouteHealth> = emptyList(),
+    val activeProfile: RoutingProfile = RoutingProfile.AUTO,
+    val customPriorityModelIds: List<Uuid> = emptyList(),
 )

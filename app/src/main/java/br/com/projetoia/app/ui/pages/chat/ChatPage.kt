@@ -68,9 +68,9 @@ import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.hugeicons.HugeIcons
-import me.rerere.hugeicons.stroke.File02
 import me.rerere.hugeicons.stroke.Code
 import me.rerere.hugeicons.stroke.Folder01
+import me.rerere.hugeicons.stroke.Key01
 import me.rerere.hugeicons.stroke.Message01
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.LeftToRightListBullet
@@ -79,6 +79,7 @@ import me.rerere.hugeicons.stroke.MessageAdd01
 import br.com.projetoia.app.R
 import br.com.projetoia.app.Screen
 import br.com.projetoia.app.data.ai.automaticRoutes
+import br.com.projetoia.app.data.ai.programmingClaudeCodeEnabled
 import br.com.projetoia.app.data.ai.programmingRoutes
 import br.com.projetoia.app.data.ai.providerFallbackPriority
 import br.com.projetoia.app.ui.pages.projeto.ProgrammingModePanel
@@ -86,6 +87,7 @@ import br.com.projetoia.app.data.model.isAwaitingToolApproval
 import br.com.projetoia.app.data.datastore.Settings
 import br.com.projetoia.app.data.datastore.findProvider
 import br.com.projetoia.app.data.datastore.getSelectedASRProvider
+import br.com.projetoia.app.data.datastore.isNotConfigured
 import br.com.projetoia.app.data.files.FilesManager
 import br.com.projetoia.app.data.model.Assistant
 import br.com.projetoia.app.data.model.Conversation
@@ -260,7 +262,8 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null, pr
                         navController = navController,
                         current = conversation,
                         vm = vm,
-                        settings = setting
+                        settings = setting,
+                        onCloseDrawer = { scope.launch { drawerState.close() } },
                     )
                 }
             ) {
@@ -338,18 +341,25 @@ private fun ChatPageContent(
             )
         }.orEmpty()
     }
-    val automaticModelSelection = setting.freeRouter.enabled || conversation.config?.programmingMode == true
-    val routeModelIds = remember(setting, conversation.config?.programmingMode, currentChatModel?.id) {
-        if (!automaticModelSelection) null
-        else if (conversation.config?.programmingMode == true) {
-            setting.programmingRoutes(preferredModelId = currentChatModel?.id).mapTo(HashSet()) { it.model.id }
+    val programmingMode = conversation.config?.programmingMode == true
+    val claudeCodeEnabled = conversation.programmingClaudeCodeEnabled
+    val routeModelIds = remember(setting, programmingMode, claudeCodeEnabled, currentChatModel?.id) {
+        if (!programmingMode) {
+            null
         } else {
-            setting.automaticRoutes(task = "", preferredModelId = currentChatModel?.id).mapTo(HashSet()) { it.model.id }
+            setting.programmingRoutes(preferredModelId = currentChatModel?.id)
+                .mapTo(HashSet()) { it.model.id }
+                .apply {
+                    br.com.projetoia.app.data.ai.claude.nativeClaudeModels(setting)
+                        .forEach { add(it.id) }
+                    currentChatModel?.id?.let { add(it) }
+                }
         }
     }
     val modelPickerProviders = remember(setting.providers, routeModelIds) {
-        if (routeModelIds == null) setting.providers
-        else setting.providers.sortedBy(::providerFallbackPriority).map { provider ->
+        val sortedProviders = setting.providers.sortedBy(::providerFallbackPriority)
+        if (routeModelIds == null) sortedProviders
+        else sortedProviders.map { provider ->
             provider.copyProvider(models = provider.models.filter { it.id in routeModelIds })
         }
     }
@@ -385,12 +395,16 @@ private fun ChatPageContent(
             bottomBar = {
                 val messageQueue by vm.messageQueue.collectAsStateWithLifecycle()
                 val voiceState by vm.voiceSession.state.collectAsStateWithLifecycle()
+                val connectProviderWarning = stringResource(R.string.projeto_connect_provider_first)
+                val selectModelWarning = stringResource(R.string.chat_page_select_model_first)
                 Column {
                     ProgrammingModePanel(
                         conversation = conversation,
                         settings = setting,
-                            executing = loadingJob != null || conversation.isAwaitingToolApproval || voiceState.isActive,
+                        executing = loadingJob != null || conversation.isAwaitingToolApproval || voiceState.isActive,
                         openInitially = programmingSetup,
+                        currentChatModel = currentChatModel,
+                        onSelectChatModel = vm::setChatModel,
                     )
                     ChatInput(
                         onStartVoiceMode = onStartVoiceMode.takeIf { conversation.config?.programmingMode != true },
@@ -414,8 +428,13 @@ private fun ChatPageContent(
                         vm.stopGeneration()
                     },
                     onSendClick = {
+                        if (setting.isNotConfigured()) {
+                            toaster.show(connectProviderWarning, type = ToastType.Warning)
+                            navController.navigate(Screen.Connections)
+                            return@ChatInput
+                        }
                         if (currentChatModel == null && !setting.freeRouter.enabled && conversation.config?.programmingMode != true) {
-                            toaster.show("请先选择模型", type = ToastType.Error)
+                            toaster.show(selectModelWarning, type = ToastType.Error)
                             return@ChatInput
                         }
                         if (inputState.isEditing()) {
@@ -545,16 +564,16 @@ private fun ChatPageContent(
 private fun ChatHomeDock(navController: Navigator) {
     val items = listOf(
         Triple(HugeIcons.Message01, R.string.projeto_chat_tab_chat) {
-            navController.navigate(Screen.Chat(Uuid.random().toString()))
+            // Já estamos na conversa vazia inicial; evita empilhar rotas vazias repetidas.
+        },
+        Triple(HugeIcons.Key01, R.string.projeto_connections) {
+            navController.navigate(Screen.Connections)
         },
         Triple(HugeIcons.Folder01, R.string.projeto_chat_tab_projects) {
             navController.navigate(Screen.Workspaces)
         },
         Triple(HugeIcons.Code, R.string.projeto_chat_tab_code) {
             navController.navigate(Screen.Chat(Uuid.random().toString(), programmingSetup = true))
-        },
-        Triple(HugeIcons.File02, R.string.projeto_chat_tab_files) {
-            navController.navigate(Screen.SettingFiles)
         },
     )
     Surface(
@@ -723,11 +742,20 @@ private fun TopBar(
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (chatModel != null && provider != null) {
+                        val isNativeClaudeActive = conversation.programmingClaudeCodeEnabled &&
+                            br.com.projetoia.app.data.ai.claude.hasNativeClaudeOption(settings, chatModel)
+                        val isAutoSelected = chatModel.id == br.com.projetoia.app.data.datastore.DEFAULT_AUTO_MODEL_ID
+                        val assistantLabel = assistant.name.ifBlank {
+                            stringResource(R.string.assistant_page_default_assistant)
+                        }
                         Text(
-                            text = if (settings.freeRouter.enabled || conversation.config?.programmingMode == true) {
-                                "${assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) }} / ${stringResource(R.string.projeto_router_active)}"
-                            } else {
-                                "${assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) }} / ${chatModel.displayName} (${provider.name})"
+                            text = when {
+                                isNativeClaudeActive ->
+                                    "Claude Code · ${chatModel.displayName} (${provider.name})"
+                                isAutoSelected && (settings.freeRouter.enabled || conversation.config?.programmingMode == true) ->
+                                    "$assistantLabel / ${stringResource(R.string.projeto_router_active)}"
+                                else ->
+                                    "$assistantLabel / ${chatModel.displayName} (${provider.name})"
                             },
                             overflow = TextOverflow.Ellipsis,
                             maxLines = 1,

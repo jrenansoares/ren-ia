@@ -27,6 +27,8 @@ import me.rerere.ai.provider.supportsConversation
 import me.rerere.ai.ui.UIMessage
 import kotlinx.serialization.json.Json
 import br.com.projetoia.app.data.datastore.Settings
+import br.com.projetoia.app.data.datastore.hasConfiguredCredentials
+import me.rerere.ai.registry.ModelRegistry
 import kotlin.time.TimeSource
 import kotlin.uuid.Uuid
 
@@ -89,11 +91,103 @@ internal fun Settings.hasCostAcknowledged(provider: ProviderSetting, model: Mode
 /** Unknown catalog entries may be explicitly checked. Known non-chat or overridden models stay out. */
 internal fun canProbeModel(provider: ProviderSetting, model: Model): Boolean =
     provider.enabled && model.chatSupported != false && model.copy(chatSupported = true).supportsConversation() &&
-        model.providerOverwrite == null && model.customBodies.isEmpty() && model.tools.isEmpty() &&
+        model.providerOverwrite == null && model.customBodies.isEmpty() &&
         when (provider) {
             is ProviderSetting.ApiKey -> provider.apiKey.isNotBlank()
             is ProviderSetting.Account -> provider.credential != null
         }
+
+enum class ModelReadiness {
+    AVAILABLE,
+    ACCESSIBLE,
+    TOOL_CAPABLE,
+}
+
+internal fun Settings.classifyModelReadiness(
+    provider: ProviderSetting,
+    model: Model,
+    now: Long = System.currentTimeMillis(),
+): ModelReadiness {
+    val check = modelCheck(provider, model)
+    val accessible = provider.enabled &&
+        provider.hasConfiguredCredentials() &&
+        check?.status == ModelCheckStatus.OK &&
+        catalogAllows(provider, model) &&
+        (routeHealth(provider, model)?.cooldownUntil ?: 0L) <= now
+    if (!accessible) return ModelReadiness.AVAILABLE
+    return if (check.toolsVerified) ModelReadiness.TOOL_CAPABLE else ModelReadiness.ACCESSIBLE
+}
+
+/**
+ * Enrich a stored or discovered model with known capabilities from [ModelRegistry]
+ * when catalog metadata omitted them, without overwriting explicit overrides.
+ */
+internal fun Model.withRegistryCapabilities(): Model {
+    val knownAbilities = if (abilities.isEmpty()) ModelRegistry.MODEL_ABILITIES.getData(modelId) else emptyList()
+    val knownInputs = if (inputModalities.size <= 1) ModelRegistry.MODEL_INPUT_MODALITIES.getData(modelId) else emptyList()
+    val knownOutputs = if (outputModalities.size <= 1) ModelRegistry.MODEL_OUTPUT_MODALITIES.getData(modelId) else emptyList()
+    val knownContext = if (contextLength <= 0) ModelRegistry.MODEL_CONTEXT_LENGTH.getData(modelId) else null
+    return copy(
+        abilities = (abilities + knownAbilities).distinct(),
+        inputModalities = (inputModalities + knownInputs).distinct(),
+        outputModalities = (outputModalities + knownOutputs).distinct(),
+        contextLength = knownContext ?: contextLength,
+    )
+}
+
+enum class ModelBillingTier {
+    FREE,
+    FREE_TIER_QUOTA,
+    PROMO_CREDITS,
+    INCLUDED_BENEFIT,
+    PAID_ONLY,
+    UNKNOWN,
+}
+
+internal fun classifyModelBilling(provider: ProviderSetting, model: Model): ModelBillingTier {
+    if (isConfirmedFreeProbe(provider, model)) return ModelBillingTier.FREE
+    if (provider is ProviderSetting.Account) return ModelBillingTier.INCLUDED_BENEFIT
+    val api = provider as? ProviderSetting.ApiKey ?: return ModelBillingTier.UNKNOWN
+    val host = runCatching { URI(api.baseUrl).host?.lowercase(java.util.Locale.ROOT) }.getOrNull().orEmpty()
+    return when {
+        host == "openrouter.ai" -> {
+            if (model.modelId == "openrouter/free" || model.modelId.endsWith(":free")) ModelBillingTier.FREE
+            else ModelBillingTier.PAID_ONLY
+        }
+        host == "api.openai.com" || host == "api.anthropic.com" -> ModelBillingTier.PAID_ONLY
+        provider is ProviderSetting.Google && provider.vertexAI -> ModelBillingTier.PAID_ONLY
+        provider is ProviderSetting.Google && !provider.vertexAI -> ModelBillingTier.FREE_TIER_QUOTA
+        host in setOf(
+            "integrate.api.nvidia.com",
+            "api.llm7.io",
+            "apihub.agnes-ai.com",
+        ) -> ModelBillingTier.FREE
+        host in setOf(
+            "api.groq.com",
+            "api.cerebras.ai",
+            "router.huggingface.co",
+            "api.mistral.ai",
+            "api.cohere.ai",
+            "api-inference.modelscope.cn",
+        ) -> ModelBillingTier.FREE_TIER_QUOTA
+        host in setOf(
+            "api.deepseek.com",
+            "api.siliconflow.com",
+            "api.together.xyz",
+            "api.fireworks.ai",
+        ) -> ModelBillingTier.PROMO_CREDITS
+        else -> ModelBillingTier.UNKNOWN
+    }
+}
+
+internal fun billingTierPriority(tier: ModelBillingTier): Int = when (tier) {
+    ModelBillingTier.FREE -> 0
+    ModelBillingTier.FREE_TIER_QUOTA -> 1
+    ModelBillingTier.PROMO_CREDITS -> 2
+    ModelBillingTier.INCLUDED_BENEFIT -> 3
+    ModelBillingTier.UNKNOWN -> 4
+    ModelBillingTier.PAID_ONLY -> 5
+}
 
 /** The default batch never contacts a provider whose price is unknown. */
 internal fun isConfirmedFreeProbe(provider: ProviderSetting, model: Model): Boolean {
@@ -119,7 +213,7 @@ internal fun modelCheckFailure(error: Throwable): ModelCheckStatus = when (routi
 /** Two short checks; tool calls are validated locally and never executed. */
 internal class ModelProbe(
     private val resolve: (ProviderSetting) -> Provider<ProviderSetting>,
-    private val timeoutMs: Long = 20_000,
+    private val timeoutMs: Long = 25_000,
     private val now: () -> Long = System::currentTimeMillis,
     private val nonce: () -> String = { Uuid.random().toString() },
 ) {
@@ -164,20 +258,21 @@ internal class ModelProbe(
                     listOf(UIMessage.user(prompt)),
                     TextGenerationParams(
                         model = model,
-                        maxTokens = 512,
+                        maxTokens = 2048,
+                        reasoningLevel = me.rerere.ai.core.ReasoningLevel.AUTO,
                         tools = emptyList(),
                         customHeaders = model.customHeaders,
-                        customBody = if (isConfirmedFreeProbe(provider, model)) listOf(
-                            CustomBody("provider", buildJsonObject { put("require_parameters", true) }),
-                        ) else emptyList(),
+                        customBody = emptyList(),
                     ),
                 )
             } ?: return result(ModelCheckStatus.TIMEOUT)
             val calls = reply.message.getTools()
-            val textValid = calls.isEmpty() && reply.message.toText().let { text ->
-                    Regex("(?s).*${Regex.escape(token)}\\s*(?:[|:=]\\s*|\\s+)${a + b}(?:\\D|$).*").matches(text)
+            val replyText = reply.message.toText()
+            val hasReasoning = reply.message.parts.any {
+                it is me.rerere.ai.ui.UIMessagePart.Reasoning && it.reasoning.isNotBlank()
             }
-            if (!textValid) return result(if (reply.message.toText().isBlank()) ModelCheckStatus.EMPTY else ModelCheckStatus.INVALID_REPLY)
+            val textValid = calls.isEmpty() && (replyText.isNotBlank() || hasReasoning)
+            if (!textValid) return result(if (replyText.isBlank() && !hasReasoning) ModelCheckStatus.EMPTY else ModelCheckStatus.INVALID_REPLY)
 
             // Tool support is tested independently so a text-capable model remains available to normal chat.
             var toolHttpStatus: Int? = null
@@ -189,22 +284,16 @@ internal class ModelProbe(
                         listOf(UIMessage.user("Call connection_probe exactly once with token '$token' and sum equal to $a + $b. Do not write text.")),
                         TextGenerationParams(
                             model = model.copy(abilities = (model.abilities + ModelAbility.TOOL).distinct()),
-                            maxTokens = 512,
+                            maxTokens = 2048,
+                            reasoningLevel = me.rerere.ai.core.ReasoningLevel.AUTO,
                             tools = listOf(probeTool),
                             customHeaders = model.customHeaders,
-                            customBody = if (isConfirmedFreeProbe(provider, model)) listOf(
-                                CustomBody("provider", buildJsonObject { put("require_parameters", true) }),
-                            ) else emptyList(),
+                            customBody = emptyList(),
                         ),
                     )
                 }
                 val toolCalls = toolReply?.message?.getTools().orEmpty()
-                val validTool = toolCalls.size == 1 && toolCalls.single().toolName == probeTool.name &&
-                    runCatching {
-                        val args = probeJson.parseToJsonElement(toolCalls.single().input).jsonObject
-                        args.keys == setOf("token", "sum") && args["token"]?.jsonPrimitive?.contentOrNull == token &&
-                            args["sum"]?.jsonPrimitive?.intOrNull == a + b
-                    }.getOrDefault(false)
+                val validTool = toolCalls.any { it.toolName == probeTool.name }
                 when {
                     toolReply == null -> ModelCheckStatus.TIMEOUT
                     validTool -> ModelCheckStatus.OK

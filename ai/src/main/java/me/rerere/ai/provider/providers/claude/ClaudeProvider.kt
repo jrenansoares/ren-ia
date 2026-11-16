@@ -294,19 +294,28 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
         messages: List<UIMessage>,
         params: TextGenerationParams,
     ): TextGenerationResult {
-        val requestBody = buildMessageRequest(providerSetting, messages, params)
-        val request = Request.Builder()
+        fun buildHttpRequest(body: JsonObject): Request = Request.Builder()
             .url("${providerSetting.baseUrl}/messages")
             .headers(providerSetting.mergeCustomHeaders(params.customHeaders))
-            .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
+            .post(json.encodeToString(body).toRequestBody("application/json".toMediaType()))
             .addHeader("x-api-key", keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString()))
             .addHeader("anthropic-version", ANTHROPIC_VERSION)
             .configureReferHeaders(providerSetting.baseUrl)
             .configureSessionHeaders(providerSetting.baseUrl, params.sessionId)
             .build()
 
-
-        val response = client.newCall(request).await()
+        val requestBody = buildMessageRequest(providerSetting, messages, params)
+        var response = client.newCall(buildHttpRequest(requestBody)).await()
+        if (response.code == 400 && ModelAbility.REASONING in params.model.abilities) {
+            val fallbackParams = params.copy(
+                model = params.model.copy(abilities = params.model.abilities - ModelAbility.REASONING),
+            )
+            val fallbackBody = buildMessageRequest(providerSetting, messages, fallbackParams)
+            if (fallbackBody != requestBody) {
+                response.close()
+                response = client.newCall(buildHttpRequest(fallbackBody)).await()
+            }
+        }
         if (!response.isSuccessful) {
             throw response.providerHttpException()
         }

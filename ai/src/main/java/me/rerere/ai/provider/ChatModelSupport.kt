@@ -14,6 +14,7 @@ private val nonChatTasks = setOf(
     "embedding", "embeddings", "embed", "rerank", "reranker", "guard", "safeguard",
     "moderation", "classifier", "reward", "transcribe", "transcription", "translation", "safety", "parakeet", "riva",
     "imagen", "veo", "flux", "image", "imgen", "sora", "seedance", "ocr", "parse", "retriever",
+    "aqa", "bison", "gecko", "robotics",
 )
 
 /** A catalog default of CHAT is not evidence that a model can hold a conversation. */
@@ -26,13 +27,14 @@ fun Model.supportsConversation(): Boolean {
                 "embed"
             ) || it.startsWith("rerank") || it.endsWith("guard")
         } ||
-        listOf("stable-diffusion", "dall-e", "hunyuan-video", "qwen-mt").any { it in name }) {
+        listOf("stable-diffusion", "dall-e", "hunyuan-video", "qwen-mt", ":batch").any { it in name }) {
         return false
     }
     if (chatSupported != null) return chatSupported
     // Legacy installations have no catalog flag. Recognize the built-in free
     // router and the SDK's known conversational models; unknown IDs stay hidden.
     return name in setOf("openrouter/free", "llama-3.3-70b-versatile", "llama-3.1-8b-instant") ||
+        name.startsWith("anthropic/claude") ||
         ModelRegistry.MODEL_ABILITIES.getData(modelId).isNotEmpty()
 }
 

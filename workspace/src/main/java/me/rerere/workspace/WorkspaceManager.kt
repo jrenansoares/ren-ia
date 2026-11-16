@@ -263,6 +263,7 @@ class WorkspaceManager(
         stdin: ByteArray? = null,
         shellCompatibilityMode: Boolean = false,
         onOutput: ((String, Boolean) -> Unit)? = null,
+        extraEnv: Map<String, String> = emptyMap(),
     ): WorkspaceCommandResult {
         require(command.isNotBlank()) { "Command is required" }
         val workingDir = fileSystem.resolve(filesDir(root), cwd)
@@ -283,11 +284,18 @@ class WorkspaceManager(
                 bindMounts = runtimeBindMounts(root),
                 shellCompatibilityMode = shellCompatibilityMode,
                 onOutput = onOutput,
+                extraEnv = extraEnv,
             )
         )
     }
 
-    fun startLocalProcess(root: String, command: String, cwd: String = "", shellCompatibilityMode: Boolean = false): Process {
+    fun startLocalProcess(
+        root: String,
+        command: String,
+        cwd: String = "",
+        shellCompatibilityMode: Boolean = false,
+        extraEnv: Map<String, String> = emptyMap(),
+    ): Process {
         val workingDir = fileSystem.resolve(filesDir(root), cwd)
         require(workingDir.isDirectory) { "Working directory does not exist: $cwd" }
         return shellRunner.startProcess(
@@ -296,6 +304,7 @@ class WorkspaceManager(
                 linuxDir = linuxDir(root), tempDir = tempDir(root), workingDir = workingDir,
                 timeoutMillis = DEFAULT_COMMAND_TIMEOUT_MS, bindMounts = runtimeBindMounts(root),
                 shellCompatibilityMode = shellCompatibilityMode,
+                extraEnv = extraEnv,
             )
         )
     }
@@ -307,7 +316,11 @@ class WorkspaceManager(
         RootfsPatcher().patch(linuxDir(root), RootfsPatchOptions(nameservers = nameservers))
     }
 
-    fun terminalLaunch(root: String, shellCompatibilityMode: Boolean): WorkspaceTerminalLaunch? =
+    fun terminalLaunch(
+        root: String,
+        shellCompatibilityMode: Boolean,
+        extraEnv: Map<String, String> = emptyMap(),
+    ): WorkspaceTerminalLaunch? =
         shellRunner.terminalLaunch(
             WorkspaceTerminalContext(
                 filesDir = filesDir(root),
@@ -315,6 +328,7 @@ class WorkspaceManager(
                 tempDir = tempDir(root),
                 bindMounts = runtimeBindMounts(root),
                 shellCompatibilityMode = shellCompatibilityMode,
+                extraEnv = extraEnv,
             )
         )
 

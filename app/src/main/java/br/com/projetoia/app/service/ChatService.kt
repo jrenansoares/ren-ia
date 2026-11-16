@@ -642,7 +642,11 @@ class ChatService(
             // 它会挂起也可能失败，期间或失败后不能还指着上一轮的回复
             session.replyMessageId.value = history.lastOrNull()?.takeIf { it.role == MessageRole.ASSISTANT }?.id
 
-            val turn = requestFactory.createContext(settings, conversation)
+            val turn = requestFactory.createContext(
+                settings = settings,
+                conversation = conversation,
+                freshClaudeSession = regenerateNodeId != null,
+            )
             senderName = if (turn.assistant.useAssistantAvatar) {
                 turn.assistant.name.ifEmpty { context.getString(R.string.assistant_page_default_assistant) }
             } else {
@@ -746,7 +750,7 @@ class ChatService(
 
     // 模型不支持工具调用时，搜索和 MCP 工具都不会生效，提醒一下
     private fun warnIfToolsUnavailable(turn: ChatTurnContext, conversationId: Uuid) {
-        if (ModelAbility.TOOL in turn.model.abilities) return
+        if (turn.claudeCode || ModelAbility.TOOL in turn.model.abilities) return
         if (shouldUseExternalWebSearch(turn.assistant, turn.model) ||
             mcpManager.getAllAvailableTools(turn.assistant).isNotEmpty()
         ) {
@@ -924,6 +928,7 @@ class ChatService(
 
     suspend fun setProgrammingClaudeCode(conversationId: Uuid, enabled: Boolean) {
         withLoadedSession(conversationId) { session ->
+            val settings = settingsStore.awaitLoaded()
             session.updateMetadata(
                 transform = { latest ->
                     check(
@@ -933,7 +938,21 @@ class ChatService(
                     check(
                         config.programmingMode && config.workspaceId != null
                     ) { context.getString(R.string.programming_activate_first) }
-                    latest.copy(config = config.copy(programmingClaudeCode = enabled))
+                    val promotedModelId = if (enabled) {
+                        br.com.projetoia.app.data.ai.claude.promotedClaudeModelIdForToggle(
+                            settings = settings,
+                            currentModel = settings.getChatModelOf(latest),
+                            fallbackModelId = config.chatModelId,
+                        )
+                    } else {
+                        config.chatModelId
+                    }
+                    latest.copy(
+                        config = config.copy(
+                            programmingClaudeCode = enabled,
+                            chatModelId = promotedModelId,
+                        )
+                    )
                 },
                 persist = conversationRepo::updateConversationConfig,
             )
@@ -986,7 +1005,8 @@ class ChatService(
                 check(project != null && !project.isSsh() && project.shellStatus == "READY") {
                     context.getString(R.string.programming_environment_required)
                 }
-                check(settings.programmingRoutes().isNotEmpty()) {
+                val hasNativeClaude = br.com.projetoia.app.data.ai.claude.nativeClaudeModels(settings).isNotEmpty()
+                check(settings.programmingRoutes().isNotEmpty() || hasNativeClaude) {
                     context.getString(R.string.programming_route_required)
                 }
             }
@@ -996,11 +1016,28 @@ class ChatService(
                         context.getString(R.string.programming_stop_first)
                     }
                     latest.withProgrammingProject(settings, workspaceId).let { updated ->
-                        if (!session.existsInDatabase && project != null && updated.title.isBlank() &&
-                            updated.messageNodes.isEmpty()) {
-                            updated.copy(title = "${context.getString(R.string.programming_title)} · ${project.name}")
+                        val claudeDefault = if (workspaceId != null && settings.programmingRoutes().isEmpty()) {
+                            br.com.projetoia.app.data.ai.claude.preferredDefaultNativeClaudeModel(settings)
+                        } else {
+                            null
+                        }
+                        val withClaudeDefault = if (claudeDefault != null) {
+                            val currentModel = settings.getChatModelOf(updated)
+                            val keepsNativeClaude = br.com.projetoia.app.data.ai.claude.hasNativeClaudeOption(settings, currentModel)
+                            updated.copy(
+                                config = updated.config?.copy(
+                                    programmingClaudeCode = true,
+                                    chatModelId = if (keepsNativeClaude) currentModel?.id ?: claudeDefault.id else claudeDefault.id,
+                                ),
+                            )
                         } else {
                             updated
+                        }
+                        if (!session.existsInDatabase && project != null && withClaudeDefault.title.isBlank() &&
+                            withClaudeDefault.messageNodes.isEmpty()) {
+                            withClaudeDefault.copy(title = "${context.getString(R.string.programming_title)} · ${project.name}")
+                        } else {
+                            withClaudeDefault
                         }
                     }
                 },

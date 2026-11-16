@@ -1,15 +1,21 @@
 package br.com.projetoia.app.ui.pages.projeto
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -32,9 +38,19 @@ import br.com.projetoia.app.data.ai.isConfirmedFreeProbe
 import br.com.projetoia.app.data.ai.hasPassedModelCheck
 import br.com.projetoia.app.data.ai.hasCostAcknowledged
 import br.com.projetoia.app.data.ai.modelCheckFingerprint
+import br.com.projetoia.app.data.ai.modelStabilityScore
+import br.com.projetoia.app.data.ai.ModelBillingTier
+import br.com.projetoia.app.data.ai.ModelCheckManager
+import br.com.projetoia.app.data.ai.ModelCheckStatus
 import br.com.projetoia.app.data.ai.ModelCostAcknowledgement
+import br.com.projetoia.app.data.ai.ModelReadiness
+import br.com.projetoia.app.data.ai.classifyModelBilling
+import br.com.projetoia.app.data.ai.classifyModelReadiness
+import br.com.projetoia.app.data.ai.modelCheck
 import br.com.projetoia.app.data.ai.providerFallbackPriority
 import br.com.projetoia.app.data.ai.routeScore
+import br.com.projetoia.app.data.ai.routeProfileScore
+import br.com.projetoia.app.data.datastore.RoutingProfile
 import br.com.projetoia.app.data.datastore.SettingsStore
 import br.com.projetoia.app.Screen
 import me.rerere.ai.provider.ProviderSetting
@@ -49,13 +65,27 @@ import androidx.compose.runtime.setValue
 @Composable
 fun FreeRouterPage() {
     val store = koinInject<SettingsStore>()
+    val checkManager = koinInject<ModelCheckManager>()
+    val checkProgress by checkManager.progress.collectAsStateWithLifecycle()
     val settings by store.settingsFlow.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val nav = LocalNavController.current
     var pendingCostAuthorization by remember { mutableStateOf<Pair<ProviderSetting, Model>?>(null) }
+    val activeProfile = settings.freeRouter.activeProfile
     val available = settings.providers.flatMap { provider ->
         provider.models.filter { isAutomaticRouteCandidate(provider, it) }.map { provider to it }
-    }.sortedWith(compareBy<Pair<ProviderSetting, Model>> { providerFallbackPriority(it.first) }.thenBy { routeScore(it.second, "programação código") })
+    }.sortedWith(
+        compareBy<Pair<ProviderSetting, Model>> { (provider, model) ->
+            when {
+                model.id in settings.freeRouter.approvedModelIds && settings.hasPassedModelCheck(provider, model) -> 0
+                settings.hasPassedModelCheck(provider, model) -> 1
+                else -> 2
+            }
+        }
+            .thenBy { providerFallbackPriority(it.first) }
+            .thenByDescending { routeProfileScore(it.second, activeProfile, "programação código") }
+            .thenBy { it.second.displayName.ifBlank { it.second.modelId }.lowercase() }
+    )
     Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.projeto_router)) }, navigationIcon = { BackButton() }) }) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
@@ -64,6 +94,63 @@ fun FreeRouterPage() {
         ) {
             item {
                 Text(stringResource(R.string.projeto_router_intro), style = MaterialTheme.typography.bodyLarge)
+            }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        stringResource(R.string.projeto_router_profile_title),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        RoutingProfile.entries.forEach { profile ->
+                            val label = when (profile) {
+                                RoutingProfile.AUTO -> stringResource(R.string.projeto_router_profile_auto)
+                                RoutingProfile.CODING -> stringResource(R.string.projeto_router_profile_coding)
+                                RoutingProfile.REASONING -> stringResource(R.string.projeto_router_profile_reasoning)
+                                RoutingProfile.VISION -> stringResource(R.string.projeto_router_profile_vision)
+                                RoutingProfile.VIDEO -> stringResource(R.string.projeto_router_profile_video)
+                                RoutingProfile.FAST -> stringResource(R.string.projeto_router_profile_fast)
+                                RoutingProfile.CUSTOM -> stringResource(R.string.projeto_router_profile_custom)
+                            }
+                            FilterChip(
+                                selected = profile == activeProfile,
+                                onClick = {
+                                    scope.launch {
+                                        store.update { latest ->
+                                            latest.copy(freeRouter = latest.freeRouter.copy(activeProfile = profile))
+                                        }
+                                    }
+                                },
+                                label = { Text(label) },
+                            )
+                        }
+                    }
+                    val profileDesc = when (activeProfile) {
+                        RoutingProfile.AUTO -> stringResource(R.string.projeto_router_profile_auto_desc)
+                        RoutingProfile.CODING -> stringResource(R.string.projeto_router_profile_coding_desc)
+                        RoutingProfile.REASONING -> stringResource(R.string.projeto_router_profile_reasoning_desc)
+                        RoutingProfile.VISION -> stringResource(R.string.projeto_router_profile_vision_desc)
+                        RoutingProfile.VIDEO -> stringResource(R.string.projeto_router_profile_video_desc)
+                        RoutingProfile.FAST -> stringResource(R.string.projeto_router_profile_fast_desc)
+                        RoutingProfile.CUSTOM -> stringResource(R.string.projeto_router_profile_custom_desc)
+                    }
+                    Text(
+                        profileDesc,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            item {
+                CardGroup {
+                    item(
+                        headlineContent = { Text(stringResource(R.string.projeto_claude_gateway_active)) },
+                        supportingContent = { Text("Claude Code no Linux pronto para usar as IAs deste perfil") },
+                    )
+                }
             }
             item {
                 TextButton(onClick = { nav.navigate(Screen.ModelChecks) }, shapes = androidx.compose.material3.ButtonDefaults.shapes(shape = androidx.compose.ui.graphics.RectangleShape, pressedShape = androidx.compose.ui.graphics.RectangleShape), elevation = null) {
@@ -129,19 +216,32 @@ fun FreeRouterPage() {
             items(available, key = { (provider, model) -> "${provider.id}:${model.id}" }) { (provider, model) ->
                 val checked = model.id in settings.freeRouter.approvedModelIds
                 val verified = settings.hasPassedModelCheck(provider, model)
+                val checkResult = settings.modelCheck(provider, model)
+                val readiness = settings.classifyModelReadiness(provider, model)
+                val checkingThisModel = checkProgress.running && model.id in checkProgress.activeModelIds
                 val confirmedFree = isConfirmedFreeProbe(provider, model)
                 val costAcknowledged = settings.hasCostAcknowledged(provider, model)
                 val routeReady = verified && (confirmedFree || costAcknowledged)
                 fun toggle() {
+                    if (!verified) {
+                        if (!checkProgress.running) {
+                            checkManager.start(provider.id, model.id, confirmedFreeOnly = false)
+                        }
+                        return
+                    }
                     if (!routeReady) {
-                        if (verified && !confirmedFree && !costAcknowledged) pendingCostAuthorization = provider to model
+                        if (!confirmedFree && !costAcknowledged) pendingCostAuthorization = provider to model
                         return
                     }
                     scope.launch {
                         store.update {
                             val ids = it.freeRouter.approvedModelIds
-                            it.copy(freeRouter = it.freeRouter.copy(approvedModelIds = if (model.id in ids) ids - model.id else ids + model.id,
-                                excludedModelIds = if (model.id in ids) (it.freeRouter.excludedModelIds + model.id).distinct() else it.freeRouter.excludedModelIds - model.id))
+                            val approving = model.id !in ids
+                            it.copy(freeRouter = it.freeRouter.copy(
+                                enabled = if (approving) true else it.freeRouter.enabled,
+                                approvedModelIds = if (model.id in ids) ids - model.id else ids + model.id,
+                                excludedModelIds = if (model.id in ids) (it.freeRouter.excludedModelIds + model.id).distinct() else it.freeRouter.excludedModelIds - model.id,
+                            ))
                         }
                     }
                 }
@@ -150,9 +250,41 @@ fun FreeRouterPage() {
                         onClick = { toggle() },
                         headlineContent = { Text(model.displayName.ifBlank { model.modelId }) },
                         supportingContent = {
-                            Text("${provider.name} · ${if (verified) stringResource(R.string.projeto_model_check_ok) else stringResource(R.string.projeto_model_check_not_tested)} · ${stringResource(if (confirmedFree) R.string.projeto_router_price_free else if (costAcknowledged) R.string.projeto_router_price_confirmed else R.string.projeto_router_price_unknown)}")
+                            val tierLabel = when (classifyModelBilling(provider, model)) {
+                                ModelBillingTier.FREE -> R.string.projeto_router_price_free
+                                ModelBillingTier.FREE_TIER_QUOTA -> R.string.projeto_router_price_quota
+                                ModelBillingTier.PROMO_CREDITS -> R.string.projeto_router_price_promo
+                                ModelBillingTier.INCLUDED_BENEFIT -> R.string.projeto_router_price_benefit
+                                ModelBillingTier.PAID_ONLY -> R.string.projeto_router_price_paid
+                                ModelBillingTier.UNKNOWN -> if (costAcknowledged) R.string.projeto_router_price_confirmed else R.string.projeto_router_price_unknown
+                            }
+                            val statusText = when {
+                                checkingThisModel -> stringResource(R.string.projeto_model_checks_state_running)
+                                readiness == ModelReadiness.TOOL_CAPABLE -> stringResource(R.string.projeto_readiness_tool_capable)
+                                verified -> stringResource(R.string.projeto_readiness_accessible)
+                                checkResult != null -> buildString {
+                                    val errRes = when (checkResult.status) {
+                                        ModelCheckStatus.AUTH_ERROR -> R.string.projeto_model_check_auth
+                                        ModelCheckStatus.QUOTA -> R.string.projeto_model_check_quota
+                                        ModelCheckStatus.TIMEOUT -> R.string.projeto_model_check_timeout
+                                        ModelCheckStatus.UNAVAILABLE -> R.string.projeto_model_check_unavailable
+                                        ModelCheckStatus.NETWORK -> R.string.projeto_model_check_network
+                                        else -> R.string.projeto_model_check_error
+                                    }
+                                    append(stringResource(errRes))
+                                    checkResult.httpStatus?.let { append(" (HTTP $it)") }
+                                }
+                                else -> stringResource(R.string.projeto_readiness_available)
+                            }
+                            Text("${provider.name} · $statusText · ${stringResource(tierLabel)}")
                         },
-                        trailingContent = { Checkbox(checked = checked, enabled = routeReady || (verified && !confirmedFree), onCheckedChange = { toggle() }) },
+                        trailingContent = {
+                            if (checkingThisModel) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                            } else {
+                                Checkbox(checked = checked, enabled = !checkProgress.running, onCheckedChange = { toggle() })
+                            }
+                        },
                     )
                 }
             }

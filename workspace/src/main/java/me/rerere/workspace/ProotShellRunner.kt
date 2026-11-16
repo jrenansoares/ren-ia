@@ -73,6 +73,9 @@ class ProotShellRunner(
         val shell = WorkspaceManager.rootfsShell(context.linuxDir)
         val args = prootArgs(context.linuxDir, context.filesDir, WORKSPACE_DIR, context.bindMounts)
         args += ROOTFS_ENV
+        context.extraEnv.forEach { (key, value) ->
+            args += "$key=$value"
+        }
         args += listOf(
             "USER=root",
             "SHELL=$shell",
@@ -103,6 +106,9 @@ class ProotShellRunner(
         val command = mutableListOf(proot.absolutePath)
         command += prootArgs(context.linuxDir, context.filesDir, context.prootCwd(), context.bindMounts)
         command += ROOTFS_ENV
+        context.extraEnv.forEach { (key, value) ->
+            command += "$key=$value"
+        }
         command += listOf(
             // 非交互执行约定, 抑制各类 CLI 的交互行为 (确认提示/分页器/颜色转义)
             "CI=true",

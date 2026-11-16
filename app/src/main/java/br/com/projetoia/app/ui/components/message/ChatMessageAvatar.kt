@@ -1,6 +1,7 @@
 package br.com.projetoia.app.ui.components.message
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
@@ -83,11 +84,22 @@ fun ChatMessageAssistantAvatar(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     if (settings.displaySetting.showModelName) {
-                        Text(
-                            text = assistant.name.ifEmpty { stringResource(R.string.assistant_page_default_assistant) },
-                            style = MaterialTheme.typography.labelLargeEmphasized,
-                            maxLines = 1,
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = assistant.name.ifEmpty { stringResource(R.string.assistant_page_default_assistant) },
+                                style = MaterialTheme.typography.labelLargeEmphasized,
+                                maxLines = 1,
+                            )
+                            if (message.modelSnapshot != null && model != null) {
+                                Text(
+                                    text = model.displayName,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                     }
                 }
             } else if (model != null) {

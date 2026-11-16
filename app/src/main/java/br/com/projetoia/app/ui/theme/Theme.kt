@@ -6,7 +6,6 @@ import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.LocalTonalElevationEnabled
 import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Shapes
@@ -144,7 +143,6 @@ fun ProjetoIATheme(
         LocalExtendColors provides RenExtendColors,
         LocalOverscrollFactory provides null,
         LocalTonalElevationEnabled provides false,
-        LocalRippleConfiguration provides null,
     ) {
         MaterialExpressiveTheme(
             colorScheme = RenColorScheme,

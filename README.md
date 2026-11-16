@@ -1,12 +1,12 @@
 ## Versão atual
 
-Ren alpha15. Veja [GUIA_REN_ALPHA15.md](GUIA_REN_ALPHA15.md) e [BUILD_VALIDATION.json](BUILD_VALIDATION.json).
+Ren alpha18 (`0.1.0-alpha18-ren`, código 18). Veja o [diagnóstico e a esteira de CI da Alpha 18](docs/BUILD_ALPHA18.md).
 
 # Ren
 
 Aplicativo Android de conversas com provedores de IA, projetos locais, terminal e ferramentas de programação. O código-fonte e o estado conhecido estão descritos em [README_PROJETO_IA.md](README_PROJETO_IA.md), em português.
 
-Versão atual: `0.1.0-alpha13-ren`. Compilação e assinatura verificadas; homologação no aparelho pendente. Consulte [GUIA_REN_ALPHA13.md](GUIA_REN_ALPHA13.md).
+Os guias Alpha 13–15 e `BUILD_VALIDATION.json` registram validações históricas dessas versões; não comprovam a compilação desta revisão. A homologação da Alpha 18 no aparelho exige validação própria.
 
 ## Principais recursos
 
@@ -18,10 +18,14 @@ Versão atual: `0.1.0-alpha13-ren`. Compilação e assinatura verificadas; homol
 ## Compilar
 
 ```bash
-./gradlew assembleGithubDebug -x :web:buildWebUi
+cd web-ui
+pnpm install --frozen-lockfile
+cd ..
+./gradlew testDebugUnitTest :app:testGithubDebugUnitTest --stacktrace
+./gradlew assembleDebug --no-daemon --stacktrace
 ```
 
-A compilação depende da versão de Gradle declarada no wrapper e de um Android SDK compatível. Execute e valide a instalação em aparelho antes de distribuir qualquer APK.
+A compilação usa JDK 21, Gradle 9.6.0, AGP 9.4.0 e SDK Android 37.2 (alvo 37). O front-end incorporado exige Node 22 e pnpm 11. O APK do canal GitHub fica em `app/build/outputs/apk/github/debug/`; o workflow o copia para `app/build/outputs/apk/debug/` e publica o artefato `Ren-IA-Alpha18-debug`. Execute e valide a instalação em aparelho antes de distribuir qualquer APK.
 
 ## Licença
 

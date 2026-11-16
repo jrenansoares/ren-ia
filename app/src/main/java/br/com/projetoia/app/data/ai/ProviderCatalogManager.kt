@@ -30,14 +30,21 @@ internal fun Settings.mergeProviderCatalog(provider: ProviderSetting, catalog: L
     // Empty successful catalogs are recorded, not mistaken for inference access.
     val byName = catalog.distinctBy { it.modelId }.associateBy { it.modelId }
     val oldIds = current.models.mapTo(HashSet()) { it.modelId }
-    val discovered = conversationalCatalog(catalog)
+    val discovered = conversationalCatalog(catalog).map { it.withRegistryCapabilities() }
+    val discoveredByName = discovered.associateBy { it.modelId }
     val updatedModels = current.models.map { old ->
-        val fresh = byName[old.modelId]
+        val fresh = discoveredByName[old.modelId] ?: byName[old.modelId]
         // Preserve verified capabilities and UUIDs. Explicit provider deactivation still wins.
-        if (fresh == null) old else old.copy(
-            chatSupported = if (fresh.chatSupported == false) false else old.chatSupported ?: fresh.chatSupported,
-            abilities = (old.abilities + fresh.abilities).distinct(),
-        )
+        if (fresh == null) {
+            old.withRegistryCapabilities()
+        } else {
+            old.copy(
+                chatSupported = if (fresh.chatSupported == false) false else old.chatSupported ?: fresh.chatSupported,
+                abilities = (old.abilities + fresh.abilities).distinct(),
+                inputModalities = (old.inputModalities + fresh.inputModalities).distinct(),
+                outputModalities = (old.outputModalities + fresh.outputModalities).distinct(),
+            ).withRegistryCapabilities()
+        }
     } + discovered.filter { it.modelId !in oldIds }
     val missing = current.models.filter { it.modelId !in byName && it.modelId != "openrouter/free" }.map { it.modelId }
     val state = ProviderCatalogState(current.id, providerConnectionFingerprint(current), now, now, ModelCheckStatus.OK,
@@ -56,16 +63,16 @@ internal fun Settings.recordCatalogFailure(provider: ProviderSetting, error: Thr
     return copy(freeRouter = freeRouter.copy(catalogs = freeRouter.catalogs.filterNot { it.providerId == current.id } + state))
 }
 
-internal fun Settings.automaticProbeCandidates(provider: ProviderSetting, force: Boolean, now: Long): List<Model> {
+internal fun Settings.automaticProbeCandidates(provider: ProviderSetting, force: Boolean, now: Long, limit: Int = 4): List<Model> {
     if (!freeRouter.automaticManagement) return emptyList()
     return provider.models.filter { model ->
             model.id !in freeRouter.excludedModelIds && canProbeModel(provider, model) && catalogAllows(provider, model) &&
                 (isConfirmedFreeProbe(provider, model) || hasCostAcknowledged(provider, model)) &&
                 (routeHealth(provider, model)?.cooldownUntil ?: 0) <= now &&
                 (force || modelCheck(provider, model)?.let { it.status == ModelCheckStatus.OK && now - it.checkedAt < CHECK_VALIDITY_MS } != true)
-        }.sortedWith(compareByDescending<Model> { routeScore(it, "programação código análise") + routeLearningScore(routeHealth(provider, it)) }
+        }.sortedWith(compareByDescending<Model> { routeScore(it, "programação código análise") + modelStabilityScore(it) + routeLearningScore(routeHealth(provider, it)) }
             .thenBy { it.modelId })
-        .take(4)
+        .take(limit)
 }
 
 internal data class AutomaticSelectionProgress(val running: Boolean = false, val completed: Int = 0, val total: Int = 0, val activeProviders: Set<Uuid> = emptySet(), val tested: Int = 0, val failedToSave: Boolean = false)
@@ -151,10 +158,10 @@ internal class ProviderCatalogManager(
         val provider = settings.providers.firstOrNull { it.id == original.id } ?: return
         if (providerConnectionFingerprint(provider) != providerConnectionFingerprint(original) || !settings.freeRouter.automaticManagement) return
         val now = System.currentTimeMillis()
-        val candidates = settings.automaticProbeCandidates(provider, force, now)
-        // Four candidates / 75 seconds per provider, stopping after two successes.
+        val candidates = settings.automaticProbeCandidates(provider, force, now, limit = 6)
+        // Up to six candidates / 75 seconds per provider, stopping after two successes or account-level auth/billing errors.
         var passed = 0
-        for (model in candidates.take(4)) {
+        for (model in candidates.take(6)) {
             val latest = store.awaitLoaded()
             val currentProvider = latest.providers.firstOrNull { it.id == provider.id } ?: return
             val currentModel = currentProvider.models.firstOrNull { it.id == model.id } ?: continue
@@ -170,14 +177,20 @@ internal class ProviderCatalogManager(
                 }
                 if (p != null && m != null && m.id !in updated.freeRouter.excludedModelIds && updated.freeRouter.automaticManagement && updated.modelCheck(p, m)?.status == ModelCheckStatus.OK &&
                     (isConfirmedFreeProbe(p, m) || updated.hasCostAcknowledged(p, m))) {
-                    updated = updated.copy(freeRouter = updated.freeRouter.copy(enabled = true,
-                        approvedModelIds = (updated.freeRouter.approvedModelIds + m.id).distinct()))
+                    val nextChatModelId = if (updated.chatModelId == br.com.projetoia.app.data.datastore.DEFAULT_AUTO_MODEL_ID) m.id else updated.chatModelId
+                    updated = updated.copy(
+                        chatModelId = nextChatModelId,
+                        freeRouter = updated.freeRouter.copy(
+                            enabled = true,
+                            approvedModelIds = (updated.freeRouter.approvedModelIds + m.id).distinct(),
+                        ),
+                    )
                 }
                 updated
             }
             mutableProgress.update { it.copy(tested = it.tested + 1) }
             if (check.status == ModelCheckStatus.OK) passed++
-            if (passed >= 2 || check.status in setOf(ModelCheckStatus.AUTH_ERROR, ModelCheckStatus.QUOTA)) break
+            if (passed >= 2 || check.httpStatus in setOf(401, 402)) break
         }
         // Previously checked models are reused without sending another prompt.
         store.update { current ->
@@ -185,8 +198,14 @@ internal class ProviderCatalogManager(
             if (!current.freeRouter.automaticManagement) return@update current
             val ready = p.models.filter { it.id !in current.freeRouter.excludedModelIds && current.catalogAllows(p, it) && current.hasPassedModelCheck(p, it) &&
                 (isConfirmedFreeProbe(p, it) || current.hasCostAcknowledged(p, it)) }.map { it.id }
-            current.copy(freeRouter = current.freeRouter.copy(enabled = current.freeRouter.enabled || ready.isNotEmpty(),
-                approvedModelIds = (current.freeRouter.approvedModelIds + ready).distinct()))
+            val nextChatModelId = if (current.chatModelId == br.com.projetoia.app.data.datastore.DEFAULT_AUTO_MODEL_ID && ready.isNotEmpty()) ready.first() else current.chatModelId
+            current.copy(
+                chatModelId = nextChatModelId,
+                freeRouter = current.freeRouter.copy(
+                    enabled = current.freeRouter.enabled || ready.isNotEmpty(),
+                    approvedModelIds = (current.freeRouter.approvedModelIds + ready).distinct(),
+                ),
+            )
         }
     }
 }

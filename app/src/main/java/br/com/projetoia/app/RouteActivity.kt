@@ -304,7 +304,7 @@ class RouteActivity : ComponentActivity() {
             }
         )
 
-        val backStack = rememberNavBackStack(Screen.ProjetoHome)
+        val backStack = rememberNavBackStack(startScreen)
         SideEffect {
             navStack = backStack
             while (pendingIntents.isNotEmpty()) {
@@ -597,7 +597,7 @@ class RouteActivity : ComponentActivity() {
                     )
                     if (BuildConfig.DEBUG) {
                         Text(
-                            text = "[开发模式]",
+                            text = "[MODO DEV]",
                             modifier = Modifier
                                 .align(Alignment.TopCenter)
                                 .padding(top = 4.dp),

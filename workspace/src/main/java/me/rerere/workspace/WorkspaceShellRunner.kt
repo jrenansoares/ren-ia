@@ -22,6 +22,7 @@ data class WorkspaceTerminalContext(
     val tempDir: File,
     val bindMounts: List<WorkspaceBindMount> = emptyList(),
     val shellCompatibilityMode: Boolean = false,
+    val extraEnv: Map<String, String> = emptyMap(),
 )
 
 /** 交给终端模拟器拉起的本地进程 */
@@ -45,6 +46,7 @@ data class WorkspaceShellContext(
     val bindMounts: List<WorkspaceBindMount> = emptyList(),
     val shellCompatibilityMode: Boolean = false,
     val onOutput: ((String, Boolean) -> Unit)? = null,
+    val extraEnv: Map<String, String> = emptyMap(),
 )
 
 class HostShellRunner : WorkspaceShellRunner {
@@ -52,6 +54,9 @@ class HostShellRunner : WorkspaceShellRunner {
         val process = ProcessBuilder(defaultShell(), "-c", context.command)
             .directory(context.workingDir)
             .redirectErrorStream(false)
+            .apply {
+                environment().putAll(context.extraEnv)
+            }
             .start()
         return process.readResult(context.timeoutMillis, context.stdin, context.onOutput)
     }

@@ -27,14 +27,21 @@ internal fun JsonObject.string(key: String): String? = (get(key) as? JsonPrimiti
 internal fun JsonObject.obj(key: String): JsonObject? = get(key) as? JsonObject
 internal fun JsonObject.array(key: String): JsonArray = get(key) as? JsonArray ?: JsonArray(emptyList())
 
-internal data class BridgeRequest(val messages: List<UIMessage>, val tools: List<Tool>, val maxTokens: Int?, val stream: Boolean)
+internal data class BridgeRequest(
+    val messages: List<UIMessage>,
+    val tools: List<Tool>,
+    val maxTokens: Int?,
+    val stream: Boolean,
+    val requestedModel: String = AnthropicBridgeCodec.MODEL,
+)
 
 /** Anthropic wire format only. Tool execution belongs exclusively to the native CLI. */
 internal object AnthropicBridgeCodec {
     const val MODEL = "projeto-free"
 
     fun decode(body: JsonObject): BridgeRequest {
-        require(body.string("model") == MODEL) { "Unknown gateway model" }
+        val requestedModel = body.string("model")?.takeIf { it.isNotBlank() }
+            ?: throw IllegalArgumentException("Missing model")
         val choice = body.obj("tool_choice")?.string("type")
         require(choice == null || choice == "auto") { "Unsupported tool_choice" }
         val messages = mutableListOf<UIMessage>()
@@ -80,7 +87,6 @@ internal object AnthropicBridgeCodec {
                         // Match to the original call. The OpenAI adapter emits its tool result
                         // immediately after the assistant call, preserving call IDs and order.
                         val owner = messages.indexOfLast { m -> m.getTools().any { it.toolCallId == id } }
-                        require(owner >= 0) { "Orphan tool result" }
                         val result = block["content"] ?: JsonPrimitive("(no output)")
                         val output = if (result is JsonArray) result.map { part ->
                             val p = part.jsonObject
@@ -93,9 +99,13 @@ internal object AnthropicBridgeCodec {
                         val prefix = if (block["is_error"]?.jsonPrimitive?.booleanOrNull == true) {
                             listOf(UIMessagePart.Text("Tool failed:"))
                         } else emptyList()
-                        messages[owner] = messages[owner].copy(parts = messages[owner].parts.map {
-                            if (it is UIMessagePart.Tool && it.toolCallId == id) it.copy(output = (prefix + output).ifEmpty { listOf(UIMessagePart.Text("(no output)")) }) else it
-                        })
+                        if (owner >= 0) {
+                            messages[owner] = messages[owner].copy(parts = messages[owner].parts.map {
+                                if (it is UIMessagePart.Tool && it.toolCallId == id) it.copy(output = (prefix + output).ifEmpty { listOf(UIMessagePart.Text("(no output)")) }) else it
+                            })
+                        } else {
+                            ordinary += (prefix + output).ifEmpty { listOf(UIMessagePart.Text("Tool $id: (no output)")) }
+                        }
                     }
                     "thinking", "redacted_thinking" -> Unit // Never replay signatures to another provider.
                     else -> error("Unsupported Anthropic content block")
@@ -119,7 +129,13 @@ internal object AnthropicBridgeCodec {
         }
         val max = body["max_tokens"]?.jsonPrimitive?.intOrNull
         require(max == null || max > 0) { "Invalid max_tokens" }
-        return BridgeRequest(messages, tools, max?.coerceAtMost(8192), body["stream"]?.jsonPrimitive?.booleanOrNull == true)
+        return BridgeRequest(
+            messages = messages,
+            tools = tools,
+            maxTokens = max?.coerceAtMost(8192),
+            stream = body["stream"]?.jsonPrimitive?.booleanOrNull == true,
+            requestedModel = requestedModel,
+        )
     }
 
     private fun image(block: JsonObject): UIMessagePart.Image {
@@ -135,14 +151,19 @@ internal object AnthropicBridgeCodec {
         it.jsonObject.string("text").orEmpty()
     }
 
-    fun response(result: TextGenerationResult): JsonObject {
+    fun response(result: TextGenerationResult, requestedModel: String? = null): JsonObject {
         val blocks = buildJsonArray {
             result.message.parts.forEach { part ->
                 when (part) {
                     is UIMessagePart.Text -> if (part.text.isNotEmpty()) add(buildJsonObject { put("type", "text"); put("text", part.text) })
                     is UIMessagePart.Tool -> add(buildJsonObject {
                         put("type", "tool_use"); put("id", part.toolCallId); put("name", part.toolName)
-                        put("input", Json.parseToJsonElement(part.input).jsonObject)
+                        val inputElement = runCatching {
+                            Json.parseToJsonElement(part.input).jsonObject
+                        }.getOrElse {
+                            buildJsonObject { put("raw_input", part.input) }
+                        }
+                        put("input", inputElement)
                     })
                     is UIMessagePart.Reasoning -> Unit
                     else -> error("Unsupported provider response block")
@@ -151,7 +172,8 @@ internal object AnthropicBridgeCodec {
         }
         require(blocks.isNotEmpty()) { "The free model returned an empty response" }
         return buildJsonObject {
-            put("id", "msg_${UUID.randomUUID()}"); put("type", "message"); put("role", "assistant"); put("model", result.model)
+            put("id", "msg_${UUID.randomUUID()}"); put("type", "message"); put("role", "assistant")
+            put("model", requestedModel?.takeIf { it.isNotBlank() } ?: result.model.ifBlank { MODEL })
             put("content", blocks)
             put("stop_reason", if (result.message.getTools().isNotEmpty()) "tool_use" else if (result.finishReason in listOf("length", "max_tokens")) "max_tokens" else "end_turn")
             put("stop_sequence", JsonNull)

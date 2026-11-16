@@ -128,7 +128,21 @@ fun ConnectionsPage() {
                         trailingContent = { Text(stringResource(if (configured) R.string.projeto_connection_edit else R.string.projeto_connection_connect), color = MaterialTheme.colorScheme.primary) },
                     )
                     formItem {
-                        TextButton(enabled = !catalogProgress.running, onClick = { connection?.let { catalogManager.start(force = true, providerId = it.id) } }) {
+                        TextButton(
+                            enabled = !catalogProgress.running,
+                            onClick = {
+                                connection?.let { conn ->
+                                    scope.launch {
+                                        store.update { current ->
+                                            val p = current.providers.firstOrNull { it.id == conn.id } ?: return@update current
+                                            val authorized = current.authorizeProviderRouting(p)
+                                            authorized.copy(freeRouter = authorized.freeRouter.copy(automaticManagement = true))
+                                        }
+                                        catalogManager.start(force = true, providerId = conn.id)
+                                    }
+                                }
+                            },
+                        ) {
                             Text(stringResource(R.string.ren_key_check))
                         }
                     }
@@ -141,7 +155,21 @@ fun ConnectionsPage() {
                             val state = settings.catalogState(provider)
                             Text(stringResource(if (state?.status == ModelCheckStatus.OK) R.string.ren_key_catalog_ok else R.string.ren_key_not_checked))
                         })
-                    formItem { TextButton(enabled = !catalogProgress.running, onClick = { catalogManager.start(force = true, providerId = provider.id) }) { Text(stringResource(R.string.ren_key_check)) } }
+                    formItem {
+                        TextButton(
+                            enabled = !catalogProgress.running,
+                            onClick = {
+                                scope.launch {
+                                    store.update { current ->
+                                        val p = current.providers.firstOrNull { it.id == provider.id } ?: return@update current
+                                        val authorized = current.authorizeProviderRouting(p)
+                                        authorized.copy(freeRouter = authorized.freeRouter.copy(automaticManagement = true))
+                                    }
+                                    catalogManager.start(force = true, providerId = provider.id)
+                                }
+                            },
+                        ) { Text(stringResource(R.string.ren_key_check)) }
+                    }
                 }
             }
             item {
@@ -208,12 +236,28 @@ fun ConnectionsPage() {
                             val compatible = conversationalCatalog(models)
                             // The built-in OpenRouter free endpoint is not always returned in /models.
                             val candidates = (compatible + configured.models.filter { it.modelId == "openrouter/free" }).distinctBy { it.modelId }
+                            var savedProviderId: kotlin.uuid.Uuid? = null
                             store.update { latest ->
                                 val updated = latest.saveConnection(service, key, models + configured.models.filter { model -> model.modelId == "openrouter/free" })
                                 val saved = updated.providers.first { service.matches(it) }
-                                updated.mergeProviderCatalog(saved, models, System.currentTimeMillis())
+                                savedProviderId = saved.id
+                                val merged = updated.mergeProviderCatalog(saved, models, System.currentTimeMillis())
+                                val mergedProvider = merged.providers.first { it.id == saved.id }
+                                val authorized = merged.authorizeProviderRouting(mergedProvider)
+                                val bestDefaultModel = mergedProvider.models
+                                    .filter { canProbeModel(mergedProvider, it) }
+                                    .maxByOrNull { modelStabilityScore(it) + routeScore(it, "programação código análise") }
+                                val nextChatModelId = if (authorized.chatModelId == br.com.projetoia.app.data.datastore.DEFAULT_AUTO_MODEL_ID && bestDefaultModel != null) {
+                                    bestDefaultModel.id
+                                } else {
+                                    authorized.chatModelId
+                                }
+                                authorized.copy(
+                                    chatModelId = nextChatModelId,
+                                    freeRouter = authorized.freeRouter.copy(automaticManagement = true),
+                                )
                             }
-                            if (store.settingsFlow.value.freeRouter.automaticManagement) catalogManager.start(force = true, providerId = store.settingsFlow.value.providers.firstOrNull { service.matches(it) }?.id)
+                            catalogManager.start(force = true, providerId = savedProviderId)
                             notice = if (candidates.isEmpty()) resources.getString(R.string.projeto_connection_no_models) else resources.getString(R.string.projeto_connection_success, candidates.size)
                             selected = null
                         } catch (cancelled: CancellationException) {

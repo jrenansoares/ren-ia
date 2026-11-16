@@ -7,8 +7,20 @@ import br.com.projetoia.app.data.model.Assistant
 import me.rerere.tts.provider.TTSProviderSetting
 import kotlin.uuid.Uuid
 
-/** 所有提供商都还没有添加模型，视为尚未完成配置。 */
-fun Settings.isNotConfigured() = providers.all { it.models.isEmpty() }
+/** Verifica se o provedor possui credencial configurada (API key, conta OAuth ou Service Account). */
+fun ProviderSetting.hasConfiguredCredentials(): Boolean = when (this) {
+    is ProviderSetting.Google -> if (vertexAI && useServiceAccount) {
+        privateKey.isNotBlank() && serviceAccountEmail.isNotBlank()
+    } else {
+        apiKey.isNotBlank()
+    }
+    is ProviderSetting.ApiKey -> apiKey.isNotBlank()
+    is ProviderSetting.Account -> credential != null
+}
+
+/** Nenhum provedor ativo possui credencial e modelos configurados. */
+fun Settings.isNotConfigured(): Boolean =
+    providers.none { it.enabled && it.hasConfiguredCredentials() && it.models.isNotEmpty() }
 
 /**
  * 按 ID 查找模型。

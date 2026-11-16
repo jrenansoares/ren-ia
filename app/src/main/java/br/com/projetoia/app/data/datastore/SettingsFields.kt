@@ -22,18 +22,19 @@ internal class SettingsField<T, P : Any>(
 ) {
     fun changed(old: Settings, new: Settings): Boolean = property.get(old) != property.get(new)
 
-    /** key 不存在时保留 [settings] 里原有的值。 */
+    /** key 不存在或单字段解密/反序列化失败时保留 [settings] 里原有的安全默认值，避免整份配置崩溃。 */
     fun read(preferences: Preferences, settings: Settings): Settings {
         val stored = preferences[key] ?: return settings
-
-        @Suppress("UNCHECKED_CAST")
-        val decoded = if (stored is String && key.name in SECRET_SETTINGS_KEYS &&
-            stored.startsWith("projetoia:sealed:")) {
-            SecretCipher.decrypt(stored.removePrefix("projetoia:sealed:")) as P
-        } else {
-            stored
-        }
-        return settings.set(decode(decoded))
+        return runCatching {
+            @Suppress("UNCHECKED_CAST")
+            val decoded = if (stored is String && key.name in SECRET_SETTINGS_KEYS &&
+                stored.startsWith("projetoia:sealed:")) {
+                SecretCipher.decrypt(stored.removePrefix("projetoia:sealed:")) as P
+            } else {
+                stored
+            }
+            settings.set(decode(decoded))
+        }.getOrDefault(settings)
     }
 
     /** 编码结果为 null 时删除 key。 */
@@ -42,7 +43,7 @@ internal class SettingsField<T, P : Any>(
         if (encoded != null) {
             @Suppress("UNCHECKED_CAST")
             val protectedValue = if (protectSecrets && encoded is String && key.name in SECRET_SETTINGS_KEYS) {
-                ("projetoia:sealed:" + SecretCipher.encrypt(encoded)) as P
+                runCatching { ("projetoia:sealed:" + SecretCipher.encrypt(encoded)) as P }.getOrDefault(encoded)
             } else {
                 encoded
             }

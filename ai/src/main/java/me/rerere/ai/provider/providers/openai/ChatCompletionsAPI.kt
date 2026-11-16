@@ -85,17 +85,10 @@ class ChatCompletionsAPI(
         messages: List<UIMessage>,
         params: TextGenerationParams,
     ): TextGenerationResult = withContext(Dispatchers.IO) {
-        val requestBody =
-            buildChatCompletionRequest(
-                messages = messages,
-                params = params,
-                providerSetting = providerSetting
-            )
-
-        val request = Request.Builder()
+        fun buildHttpRequest(body: JsonObject): Request = Request.Builder()
             .url("${providerSetting.baseUrl}${providerSetting.chatCompletionsPath}")
             .headers(providerSetting.mergeCustomHeaders(params.customHeaders))
-            .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
+            .post(json.encodeToString(body).toRequestBody("application/json".toMediaType()))
             .addHeader(
                 "Authorization",
                 "Bearer ${keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString())}"
@@ -104,8 +97,31 @@ class ChatCompletionsAPI(
             .configureSessionHeaders(providerSetting.baseUrl, params.sessionId)
             .build()
 
+        val requestBody =
+            buildChatCompletionRequest(
+                messages = messages,
+                params = params,
+                providerSetting = providerSetting
+            )
 
-        val response = client.newCall(request).await()
+        var response = client.newCall(buildHttpRequest(requestBody)).await()
+        if (response.code in setOf(400, 422)) {
+            val fallbackParams = params.copy(
+                model = params.model.copy(abilities = params.model.abilities - ModelAbility.REASONING),
+                temperature = null,
+                topP = null,
+                customBody = emptyList(),
+            )
+            val fallbackBody = buildChatCompletionRequest(
+                messages = messages,
+                params = fallbackParams,
+                providerSetting = providerSetting,
+            )
+            if (fallbackBody != requestBody) {
+                response.close()
+                response = client.newCall(buildHttpRequest(fallbackBody)).await()
+            }
+        }
         if (!response.isSuccessful) {
             throw response.providerHttpException()
         }
@@ -258,19 +274,17 @@ class ChatCompletionsAPI(
                 when (host) {
                     "openrouter.ai" -> {
                         // https://openrouter.ai/docs/use-cases/reasoning-tokens
-                        put("reasoning", buildJsonObject {
-                            when (level) {
-                                ReasoningLevel.OFF -> put("effort", "none")
-                                ReasoningLevel.AUTO -> put("enabled", true)
-                                else -> put("effort", level.effort)
-                            }
-                        })
+                        if (level != ReasoningLevel.AUTO && level != ReasoningLevel.OFF) {
+                            put("reasoning", buildJsonObject {
+                                put("effort", level.effort)
+                            })
+                        }
                     }
 
                     "dashscope.aliyuncs.com" -> {
                         // 阿里云百炼
                         // https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions
-                        if (level != ReasoningLevel.AUTO) {
+                        if (level != ReasoningLevel.AUTO && level != ReasoningLevel.OFF) {
                             put("reasoning_effort", level.effort)
                         }
                     }
@@ -357,10 +371,10 @@ class ChatCompletionsAPI(
                     }
 
                     "api.deepseek.com" -> {
-                        put("thinking", buildJsonObject {
-                            put("type", if (!level.isEnabled) "disabled" else "enabled")
-                        })
-                        if (level.isEnabled && level != ReasoningLevel.AUTO) {
+                        if (level != ReasoningLevel.AUTO && level != ReasoningLevel.OFF) {
+                            put("thinking", buildJsonObject {
+                                put("type", "enabled")
+                            })
                             val effort = when (level) {
                                 ReasoningLevel.MEDIUM, ReasoningLevel.HIGH -> "high"
                                 ReasoningLevel.MAX -> "max"
@@ -371,30 +385,27 @@ class ChatCompletionsAPI(
                     }
 
                     "integrate.api.nvidia.com" -> {
-                        if ("deepseek-v4" in params.model.modelId.lowercase()) {
-                            if (level != ReasoningLevel.AUTO) {
+                        if (level != ReasoningLevel.AUTO && level != ReasoningLevel.OFF) {
+                            if ("deepseek-v4" in params.model.modelId.lowercase()) {
                                 val effort = when (level) {
                                     ReasoningLevel.XHIGH, ReasoningLevel.MAX -> "max"
-                                    ReasoningLevel.OFF -> "none"
                                     else -> "high"
                                 }
                                 put("reasoning_effort", effort)
-                            }
-                        } else {
-                            if (level != ReasoningLevel.AUTO) {
-                                put("reasoning_effort", if (level.effort == "none") "low" else level.effort)
+                            } else {
+                                put("reasoning_effort", level.effort)
                             }
                         }
                     }
 
                     "opencode.ai" -> {
-                        if (level != ReasoningLevel.AUTO) {
+                        if (level != ReasoningLevel.AUTO && level != ReasoningLevel.OFF) {
                             put("reasoning_effort", level.effort)
                         }
                     }
 
                     else -> {
-                        if (level != ReasoningLevel.AUTO) {
+                        if (level != ReasoningLevel.AUTO && level != ReasoningLevel.OFF) {
                             put("reasoning_effort", level.effort)
                         }
                     }

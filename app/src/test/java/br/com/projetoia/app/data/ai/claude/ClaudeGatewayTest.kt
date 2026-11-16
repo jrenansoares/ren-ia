@@ -64,6 +64,47 @@ class ClaudeGatewayTest {
         }
     }
 
+    @Test fun modelsAndHealthEndpointsAreAccessible() = runBlocking {
+        withTimeout(10_000) {
+            coroutineScope {
+                val gateway = ClaudeLocalGateway(this) {
+                    AnthropicBridgeCodec.response(TextGenerationResult("id", "free-test", UIMessage.assistant("ok")), it.requestedModel)
+                }
+                try {
+                    val base = gateway.start()
+                    val health = get("$base/", null)
+                    assertEquals(200, health.first)
+                    assertTrue(health.second.contains("Ren IA Anthropic Gateway"))
+
+                    val unauthorizedModels = get("$base/v1/models", "wrong-key")
+                    assertEquals(401, unauthorizedModels.first)
+
+                    val authorizedModels = get("$base/v1/models", gateway.token)
+                    assertEquals(200, authorizedModels.first)
+                    assertTrue(authorizedModels.second.contains("claude-3-5-sonnet-20241022"))
+                    assertTrue(authorizedModels.second.contains("projeto-free"))
+
+                    val customModelReq = """{"model":"claude-3-5-sonnet-20241022","messages":[{"role":"user","content":"hi"}]}"""
+                    val resp = post("$base/v1/messages", gateway.token, customModelReq)
+                    assertEquals(200, resp.first)
+                    assertTrue(resp.second.contains("claude-3-5-sonnet-20241022"))
+                } finally { gateway.close() }
+            }
+        }
+    }
+
+    private suspend fun get(url: String, token: String?): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val connection = URI(url).toURL().openConnection() as HttpURLConnection
+        try {
+            connection.connectTimeout = 3000; connection.readTimeout = 3000
+            connection.requestMethod = "GET"
+            if (token != null) connection.setRequestProperty("x-api-key", token)
+            val code = connection.responseCode
+            val text = (if (code >= 400) connection.errorStream else connection.inputStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
+            Pair(code, text)
+        } finally { connection.disconnect() }
+    }
+
     private suspend fun post(url: String, token: String, body: String): Triple<Int, String, Map<String, String>> = withContext(Dispatchers.IO) {
         val connection = URI(url).toURL().openConnection() as HttpURLConnection
         try {

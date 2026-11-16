@@ -111,6 +111,11 @@ fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
                         headlineContent = { Text(stringResource(R.string.linux_page_title)) },
                         supportingContent = { Text(stringResource(R.string.linux_page_intro)) },
                     )
+                    item(
+                        onClick = { navController.navigate(Screen.Repositories) },
+                        headlineContent = { Text(stringResource(R.string.projeto_repositories_title)) },
+                        supportingContent = { Text(stringResource(R.string.projeto_repositories_intro)) },
+                    )
                 }
             }
             if (workspaces.isEmpty()) {

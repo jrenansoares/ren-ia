@@ -228,10 +228,8 @@ class SettingsStore internal constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                // 读不出设置就不能带着占位值继续运行：界面上是一份默认设置，而任何修改都落不了盘
-                Log.e(TAG, "Failed to load settings", e)
-                Runtime.getRuntime().halt(1)
-                throw e
+                Log.e(TAG, "Failed to load settings, recovering with safe defaults", e)
+                emptyPreferences().toSettings().normalized()
             }
         }
     }

@@ -14,4 +14,21 @@ class DefaultProvidersTest {
         assertEquals(DEFAULT_AUTO_MODEL_ID, router.models.single().id)
         assertFalse(DEFAULT_PROVIDERS.any { it.name == "Vercel AI Gateway" })
     }
+
+    @Test
+    fun `default providers are treated as not configured until credentials exist`() {
+        val unconfigured = Settings(providers = DEFAULT_PROVIDERS)
+        assertTrue(unconfigured.isNotConfigured())
+
+        val configured = unconfigured.copy(
+            providers = DEFAULT_PROVIDERS.map { provider ->
+                if (provider is ProviderSetting.OpenAI && provider.name == "OpenRouter") {
+                    provider.copy(apiKey = "sk-or-v1-test")
+                } else {
+                    provider
+                }
+            }
+        )
+        assertFalse(configured.isNotConfigured())
+    }
 }

@@ -525,10 +525,15 @@ class WorkspaceRepository(
 
     private fun shellQuote(value: String): String = "'${value.replace("'", "'\\''")}'"
 
-    suspend fun startLocalProcess(id: String, command: String, cwd: String = ""): Process = withContext(Dispatchers.IO) {
+    suspend fun startLocalProcess(
+        id: String,
+        command: String,
+        cwd: String = "",
+        extraEnv: Map<String, String> = emptyMap(),
+    ): Process = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: error("Workspace not found")
         check(!workspace.isSsh() && manager.hasRootfs(workspace.root)) { "A local Linux project is required" }
-        manager.startLocalProcess(workspace.root, command, cwd, workspace.shellCompatibilityMode)
+        manager.startLocalProcess(workspace.root, command, cwd, workspace.shellCompatibilityMode, extraEnv)
     }
 
     suspend fun exportProjectArchive(id: String, output: OutputStream, progress: (ProjectArchiveProgress) -> Unit) {
