@@ -63,6 +63,10 @@ publicação automática de releases nem dependência de segredos de release.
 
 - Gatilhos: push em `main` e `feature/alpha*`, PR para `main` e disparo manual.
 - Checkout v4, Temurin 21, setup-android v3 e setup-gradle v4.
+- Pacote `platform-tools` explícito: a primeira execução da nova esteira
+  (`43803516640`) revelou que o padrão `tools` do setup-android v3 foi removido
+  do catálogo Android. O workflow evita esse pacote legado e não imprime o
+  texto completo das licenças no log.
 - Permissão de repositório somente para leitura; cache Gradle somente para
   leitura em PRs; cancelamento de execuções anteriores da mesma referência.
 - Wrapper executável e `local.properties` criado somente se ausente.
